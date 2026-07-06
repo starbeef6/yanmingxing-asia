@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="750" height="280" viewBox="0 0 750 280">
+  <defs>
+    <linearGradient id="g" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#b80033"/>
+      <stop offset=".55" stop-color="#f6d7a4"/>
+      <stop offset="1" stop-color="#fffaf3"/>
+    </linearGradient>
+  </defs>
+  <rect width="750" height="280" rx="18" fill="url(#g)"/>
+  <circle cx="646" cy="52" r="74" fill="#ffffff" fill-opacity=".22"/>
+  <text x="64" y="118" font-size="38" font-family="Arial, sans-serif" font-weight="700" fill="#ffffff">Member Benefits</text>
+  <text x="64" y="166" font-size="22" font-family="Arial, sans-serif" fill="#ffffff" fill-opacity=".9">Banner Placeholder</text>
+</svg>

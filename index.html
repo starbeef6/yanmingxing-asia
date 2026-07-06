@@ -1,0 +1,1050 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <title>熊大爷点餐 - 首页静态复刻</title>
+  <style>
+    :root {
+      --primary: #244a34;
+      --primary-strong: #183323;
+      --accent: #d6b172;
+      --accent-soft: #f4ead8;
+      --text-primary: #241d16;
+      --text-secondary: #837766;
+      --page-bg: #f8f3ea;
+      --card-border: rgba(111, 85, 43, 0.12);
+      --white: #fff;
+      --page-bg-art: none;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    html,
+    body {
+      margin: 0;
+      min-height: 100%;
+      font-size: 16px;
+      line-height: 1;
+      scroll-behavior: smooth;
+      background: var(--page-bg);
+      color: var(--text-primary);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", MiSans, Roboto, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Helvetica Neue", Helvetica, Arial, sans-serif;
+    }
+
+    button {
+      font: inherit;
+    }
+
+    .root {
+      position: relative;
+      min-height: 100vh;
+      overflow-x: hidden;
+      background:
+        linear-gradient(180deg, rgba(255, 253, 247, 0.2), rgba(248, 243, 234, 0.96) 48%, rgba(248, 243, 234, 1) 100%);
+    }
+
+    .page-bg {
+      position: absolute;
+      inset: 0;
+      z-index: 0;
+      min-height: 100%;
+      overflow: hidden;
+      pointer-events: none;
+      background-image:
+        radial-gradient(circle at top right, rgba(214, 177, 114, 0.28), rgba(214, 177, 114, 0) 34%),
+        radial-gradient(circle at top left, rgba(53, 87, 61, 0.2), rgba(53, 87, 61, 0) 26%),
+        linear-gradient(180deg, rgba(255, 251, 244, 0.96) 0%, rgba(248, 243, 234, 0.94) 45%, rgba(244, 238, 226, 1) 100%),
+        var(--page-bg-art);
+    }
+
+    .page-content {
+      position: relative;
+      z-index: 1;
+      min-height: 100vh;
+    }
+
+    .hero {
+      position: relative;
+      width: 100vw;
+      height: 92vw;
+      max-height: 520px;
+      min-height: 340px;
+      overflow: hidden;
+      background-color: transparent;
+    }
+
+    .hero-swiper {
+      position: relative;
+      width: 100%;
+      height: 100%;
+    }
+
+    .hero-slide {
+      position: absolute;
+      inset: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 0;
+      opacity: 1;
+      transform: translateX(0);
+    }
+
+    .hero-banner {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      object-position: center top;
+    }
+
+    .card {
+      border: 1px solid var(--card-border);
+      border-radius: 22px;
+      background-color: var(--white);
+      padding: 18px;
+      box-shadow: 0 18px 36px rgba(63, 45, 19, 0.06);
+    }
+
+    .top-banner {
+      position: relative;
+      z-index: 9;
+      display: flex;
+      align-items: center;
+      margin: -42px 16px 0;
+      padding: 18px;
+      background: rgba(255, 255, 255, 0.96);
+      backdrop-filter: blur(12px);
+    }
+
+    .top-icon {
+      width: 40px;
+      height: 40px;
+      flex: 0 0 40px;
+      padding: 0;
+      border-radius: 14px;
+      object-fit: cover;
+    }
+
+    .top-title {
+      width: calc(100% - 52px);
+      margin-left: 12px;
+    }
+
+    .member-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+    }
+
+    .member-copy {
+      min-width: 0;
+    }
+
+    .button {
+      margin: 0;
+      min-width: auto;
+      min-height: auto;
+      padding: 8px 16px;
+      overflow: initial;
+      border: 0;
+      border-radius: 999px;
+      background: linear-gradient(135deg, var(--primary), var(--primary-strong));
+      color: var(--white);
+      cursor: pointer;
+      font-size: 13px;
+      font-weight: 700;
+      line-height: 1.5;
+      white-space: nowrap;
+      box-shadow: 0 10px 24px rgba(36, 74, 52, 0.2);
+    }
+
+    .content {
+      display: block;
+      padding: 14px 16px 28px;
+    }
+
+    .stack {
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+    }
+
+    .flex-room {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+    }
+
+    .left {
+      width: calc(50% - 5px);
+    }
+
+    .service-card {
+      width: 100%;
+      padding: 24px 18px;
+      background: linear-gradient(180deg, #fffaf2, #ffffff);
+    }
+
+    .item-root {
+      display: flex;
+      flex: 1;
+      flex-direction: column;
+      align-items: flex-start;
+      justify-content: flex-start;
+      gap: 10px;
+    }
+
+    .order-card {
+      height: 212px;
+    }
+
+    .service-icon {
+      width: 82px;
+      height: 82px;
+      object-fit: contain;
+    }
+
+    .item-right-card {
+      width: 100%;
+      height: 101px;
+      padding: 16px;
+      background: linear-gradient(180deg, rgba(255, 250, 242, 0.88), rgba(255, 255, 255, 1));
+    }
+
+    .item-right-card + .item-right-card {
+      margin-top: 10px;
+    }
+
+    .item-right {
+      display: flex;
+      align-items: center;
+      justify-content: flex-start;
+      gap: 12px;
+      height: 100%;
+    }
+
+    .right-icon {
+      width: 54px;
+      height: 54px;
+      object-fit: contain;
+    }
+
+    .item-bottom-card {
+      width: calc(33% - 2px);
+      min-height: 92px;
+      padding: 14px 10px;
+      background: rgba(255, 255, 255, 0.92);
+    }
+
+    .item-bottom {
+      text-align: center;
+    }
+
+    .bottom-icon {
+      width: 34px;
+      height: 34px;
+      margin-bottom: 8px;
+      object-fit: contain;
+    }
+
+    .store-link {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      width: 100%;
+      padding: 18px;
+      border: 1px solid var(--card-border);
+      border-radius: 20px;
+      background: rgba(255, 255, 255, 0.9);
+      box-shadow: 0 14px 28px rgba(63, 45, 19, 0.05);
+    }
+
+    .store-link-copy {
+      min-width: 0;
+    }
+
+    .store-link-action {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 34px;
+      padding: 0 12px;
+      border-radius: 999px;
+      background: var(--accent-soft);
+      color: var(--primary-strong);
+      font-size: 12px;
+      font-weight: 700;
+      white-space: nowrap;
+    }
+
+    .mid-banner {
+      position: relative;
+      z-index: 1;
+      display: block;
+      width: 100%;
+      height: auto;
+      aspect-ratio: 750 / 280;
+      overflow: hidden;
+      border-radius: 22px;
+      transform: rotate(0deg);
+      background: var(--white);
+      box-shadow: 0 18px 36px rgba(63, 45, 19, 0.08);
+    }
+
+    .banner-slide {
+      position: absolute;
+      inset: 0;
+      opacity: 0;
+      transition: opacity 0.35s ease;
+    }
+
+    .banner-slide.active {
+      opacity: 1;
+    }
+
+    .banner-slide img,
+    .bottom-banner img {
+      display: block;
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+    }
+
+    .banner-dots {
+      position: absolute;
+      right: 0;
+      bottom: 10px;
+      left: 0;
+      display: flex;
+      justify-content: center;
+      gap: 6px;
+    }
+
+    .banner-dot {
+      width: 7px;
+      height: 7px;
+      border-radius: 999px;
+      background: rgba(255, 255, 255, 0.66);
+      opacity: 1;
+      transition: width 0.25s ease, background 0.25s ease;
+    }
+
+    .banner-dot.active {
+      width: 14px;
+      background: #fff;
+    }
+
+    .bottom-banner {
+      height: auto;
+      aspect-ratio: 750 / 236;
+      overflow: hidden;
+      border-radius: 22px;
+      background: var(--white);
+      box-shadow: 0 18px 36px rgba(63, 45, 19, 0.08);
+    }
+
+    .h2,
+    .h3,
+    .h4,
+    .caption {
+      display: block;
+      margin: 0;
+      color: var(--text-primary);
+      line-height: 1.5;
+      word-break: keep-all;
+    }
+
+    .h2 {
+      font-size: 17px;
+      font-weight: 700;
+    }
+
+    .h3 {
+      font-size: 15px;
+      font-weight: 500;
+    }
+
+    .h4 {
+      font-size: 12px;
+      font-weight: 400;
+    }
+
+    .caption {
+      font-size: 11px;
+      font-weight: 400;
+      line-height: 1.4;
+    }
+
+    .title {
+      margin-bottom: 4px;
+    }
+
+    .text-red {
+      color: #8e6f38;
+    }
+
+    .text-secondary {
+      color: var(--text-secondary);
+    }
+
+    .bold {
+      font-weight: 700;
+    }
+
+    .editable-asset {
+      cursor: pointer;
+    }
+
+    .editable-asset:focus-visible {
+      outline: 2px solid rgba(36, 74, 52, 0.45);
+      outline-offset: 3px;
+    }
+
+    .asset-toolbar {
+      position: fixed;
+      right: 12px;
+      bottom: 12px;
+      z-index: 30;
+      width: min(360px, calc(100vw - 24px));
+      max-height: calc(100vh - 24px);
+      overflow: auto;
+      border: 1px solid rgba(9, 9, 9, 0.08);
+      border-radius: 16px;
+      background: rgba(255, 255, 255, 0.96);
+      box-shadow: 0 20px 50px rgba(0, 0, 0, 0.16);
+      backdrop-filter: blur(12px);
+    }
+
+    .asset-toolbar[open] {
+      padding: 0;
+    }
+
+    .asset-toolbar summary {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 14px 16px;
+      cursor: pointer;
+      list-style: none;
+      user-select: none;
+    }
+
+    .asset-toolbar summary::-webkit-details-marker {
+      display: none;
+    }
+
+    .asset-toolbar-title {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+
+    .asset-toolbar-body {
+      border-top: 1px solid rgba(9, 9, 9, 0.08);
+      padding: 0 16px 16px;
+    }
+
+    .asset-toolbar-copy {
+      margin: 12px 0 0;
+      color: var(--text-secondary);
+      font-size: 12px;
+      line-height: 1.5;
+    }
+
+    .asset-grid {
+      display: grid;
+      gap: 10px;
+      margin-top: 14px;
+    }
+
+    .asset-row {
+      display: grid;
+      gap: 8px;
+      padding: 10px 12px;
+      border: 1px solid rgba(9, 9, 9, 0.08);
+      border-radius: 12px;
+      background: #fff;
+    }
+
+    .asset-row-head {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 8px;
+    }
+
+    .asset-row-title {
+      font-size: 13px;
+      font-weight: 700;
+      line-height: 1.4;
+    }
+
+    .asset-row-meta,
+    .asset-status {
+      color: var(--text-secondary);
+      font-size: 11px;
+      line-height: 1.5;
+    }
+
+    .asset-status {
+      min-width: 0;
+      word-break: break-all;
+    }
+
+    .asset-actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+
+    .asset-upload {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 34px;
+      padding: 0 12px;
+      border-radius: 999px;
+      background: rgba(36, 74, 52, 0.08);
+      color: var(--primary);
+      cursor: pointer;
+      font-size: 12px;
+      font-weight: 700;
+      line-height: 1;
+    }
+
+    .asset-upload input {
+      display: none;
+    }
+
+    .asset-reset,
+    .asset-reset-all {
+      min-height: 34px;
+      padding: 0 12px;
+      border: 0;
+      border-radius: 999px;
+      background: #111;
+      color: #fff;
+      cursor: pointer;
+      font-size: 12px;
+      font-weight: 700;
+      line-height: 1;
+    }
+
+    .asset-reset-all {
+      width: 100%;
+      margin-top: 14px;
+      background: var(--primary);
+    }
+
+    @media (min-width: 600px) {
+      .root {
+        max-width: 414px;
+        margin: 0 auto;
+        box-shadow: 0 24px 48px rgba(54, 36, 14, 0.14);
+      }
+
+      .hero {
+        width: 100%;
+        height: 420px;
+      }
+    }
+
+    @media (max-width: 360px) {
+      .top-banner {
+        margin-right: 12px;
+        margin-left: 12px;
+        margin-top: -32px;
+      }
+
+      .content {
+        padding-right: 12px;
+        padding-left: 12px;
+      }
+
+      .h2 {
+        font-size: 15px;
+      }
+
+      .h3 {
+        font-size: 13px;
+      }
+
+      .service-icon {
+        width: 72px;
+        height: 72px;
+      }
+
+      .right-icon {
+        width: 46px;
+        height: 46px;
+      }
+
+      .item-right {
+        gap: 10px;
+      }
+    }
+
+    @media (max-width: 480px) {
+      .asset-toolbar {
+        right: 8px;
+        bottom: 8px;
+        width: calc(100vw - 16px);
+        max-height: calc(100vh - 16px);
+      }
+    }
+  </style>
+</head>
+<body>
+  <main class="root">
+    <div class="page-bg" aria-hidden="true"></div>
+
+    <div class="page-content">
+      <section class="hero" aria-label="顶部活动轮播">
+        <div class="hero-swiper" data-carousel="hero">
+          <div class="hero-slide active">
+            <img class="hero-banner editable-asset" src="index-static/hero-premium-v2.png" alt="顶部主视觉活动图" data-asset-key="heroBanner" tabindex="0">
+          </div>
+        </div>
+      </section>
+
+      <section class="card top-banner" aria-label="会员信息">
+        <img class="top-icon editable-asset" src="index-static/logo.png" alt="熊大爷 logo" data-asset-key="logo" tabindex="0">
+        <div class="top-title">
+          <div class="member-row">
+            <div class="member-copy">
+              <p class="h3 bold">欢迎光临</p>
+              <p class="h4 text-secondary">加入会员享专属福利与门店礼遇</p>
+            </div>
+            <button class="button" type="button">一键登录</button>
+          </div>
+        </div>
+      </section>
+
+      <section class="content">
+        <div class="stack">
+          <section aria-label="服务入口">
+            <div class="flex-room">
+              <article class="card service-card left">
+                <div class="item-root order-card">
+                  <img class="service-icon editable-asset" src="index-static/order-premium.svg" alt="" data-asset-key="order" tabindex="0">
+                  <p class="h2 title">开始点餐</p>
+                  <p class="caption text-red">现包现煮，到店到家都更从容</p>
+                </div>
+              </article>
+
+              <div class="left">
+                <article class="card item-right-card">
+                  <div class="item-right">
+                    <img class="right-icon editable-asset" src="index-static/recharge-premium.svg" alt="" data-asset-key="recharge" tabindex="0">
+                    <div>
+                      <p class="h2 title">会员充值</p>
+                      <p class="caption text-red">储值回馈，常吃更划算</p>
+                    </div>
+                  </div>
+                </article>
+                <article class="card item-right-card">
+                  <div class="item-right">
+                    <img class="right-icon editable-asset" src="index-static/group-premium.svg" alt="" data-asset-key="group" tabindex="0">
+                    <div>
+                      <p class="h2 title">积分商城</p>
+                      <p class="caption text-red">积分换礼，会员权益更完整</p>
+                    </div>
+                  </div>
+                </article>
+              </div>
+            </div>
+
+            <div class="flex-room" style="margin-top: 10px;">
+              <article class="card item-bottom-card">
+                <div class="item-bottom">
+                  <img class="bottom-icon editable-asset" src="index-static/book-premium.svg" alt="" data-asset-key="book" tabindex="0">
+                  <p class="h3 bold">堂食预点</p>
+                </div>
+              </article>
+              <article class="card item-bottom-card">
+                <div class="item-bottom">
+                  <img class="bottom-icon editable-asset" src="index-static/member-premium.svg" alt="" data-asset-key="member" tabindex="0">
+                  <p class="h3 bold">会员好礼</p>
+                </div>
+              </article>
+              <article class="card item-bottom-card">
+                <div class="item-bottom">
+                  <img class="bottom-icon editable-asset" src="index-static/mall-premium.svg" alt="" data-asset-key="mall" tabindex="0">
+                  <p class="h3 bold">社群福利</p>
+                </div>
+              </article>
+            </div>
+          </section>
+
+          <section class="store-link" aria-label="门店入口">
+            <div class="store-link-copy">
+              <p class="h2">查找门店</p>
+              <p class="h4 text-secondary">选择附近门店，查看营业时间与到店信息</p>
+            </div>
+            <span class="store-link-action">查看全部</span>
+          </section>
+
+          <section class="mid-banner" aria-label="中部 banner 轮播" data-carousel="banner">
+            <div class="banner-slide active">
+              <img class="editable-asset" src="index-static/banner-inspired-1.png" alt="中部活动 banner 一" data-asset-key="banner1" tabindex="0">
+            </div>
+            <div class="banner-slide">
+              <img class="editable-asset" src="index-static/banner-inspired-2.png" alt="中部活动 banner 二" data-asset-key="banner2" tabindex="0">
+            </div>
+            <div class="banner-slide">
+              <img class="editable-asset" src="index-static/banner-inspired-3.png" alt="中部活动 banner 三" data-asset-key="banner3" tabindex="0">
+            </div>
+            <div class="banner-dots" aria-hidden="true">
+              <span class="banner-dot active"></span>
+              <span class="banner-dot"></span>
+              <span class="banner-dot"></span>
+            </div>
+          </section>
+
+          <section class="bottom-banner" aria-label="底部 banner">
+            <img class="editable-asset" src="index-static/bottom-banner-inspired.png" alt="底部活动 banner" data-asset-key="bottomBanner" tabindex="0">
+          </section>
+        </div>
+      </section>
+    </div>
+  </main>
+
+  <details class="asset-toolbar">
+    <summary>
+      <div class="asset-toolbar-title">
+        <span class="h2">素材替换面板</span>
+        <span class="asset-row-meta">点击页面里的图片也能直接替换</span>
+      </div>
+      <span class="h4 text-secondary">展开 / 收起</span>
+    </summary>
+    <div class="asset-toolbar-body">
+      <p class="asset-toolbar-copy">每个图片位都支持本地上传预览。替换只影响当前页面预览，刷新页面后恢复默认素材。</p>
+
+      <div class="asset-grid">
+        <section class="asset-row" data-asset-row="pageBgArt">
+          <div class="asset-row-head">
+            <div>
+              <div class="asset-row-title">页面背景纹理</div>
+              <div class="asset-row-meta">首页底层背景图</div>
+            </div>
+            <div class="asset-status" data-asset-status="pageBgArt">默认素材</div>
+          </div>
+          <div class="asset-actions">
+            <label class="asset-upload">上传图片<input type="file" accept="image/*" data-upload-for="pageBgArt"></label>
+            <button class="asset-reset" type="button" data-reset-for="pageBgArt">恢复默认</button>
+          </div>
+        </section>
+
+        <section class="asset-row" data-asset-row="heroBanner">
+          <div class="asset-row-head">
+            <div>
+              <div class="asset-row-title">顶部主视觉</div>
+              <div class="asset-row-meta">Hero 大图</div>
+            </div>
+            <div class="asset-status" data-asset-status="heroBanner">默认素材</div>
+          </div>
+          <div class="asset-actions">
+            <label class="asset-upload">上传图片<input type="file" accept="image/*" data-upload-for="heroBanner"></label>
+            <button class="asset-reset" type="button" data-reset-for="heroBanner">恢复默认</button>
+          </div>
+        </section>
+
+        <section class="asset-row" data-asset-row="logo">
+          <div class="asset-row-head">
+            <div>
+              <div class="asset-row-title">会员区 Logo</div>
+              <div class="asset-row-meta">顶部欢迎卡图标</div>
+            </div>
+            <div class="asset-status" data-asset-status="logo">默认素材</div>
+          </div>
+          <div class="asset-actions">
+            <label class="asset-upload">上传图片<input type="file" accept="image/*" data-upload-for="logo"></label>
+            <button class="asset-reset" type="button" data-reset-for="logo">恢复默认</button>
+          </div>
+        </section>
+
+        <section class="asset-row" data-asset-row="order">
+          <div class="asset-row-head">
+            <div>
+              <div class="asset-row-title">开始点餐图</div>
+              <div class="asset-row-meta">左侧主入口</div>
+            </div>
+            <div class="asset-status" data-asset-status="order">默认素材</div>
+          </div>
+          <div class="asset-actions">
+            <label class="asset-upload">上传图片<input type="file" accept="image/*" data-upload-for="order"></label>
+            <button class="asset-reset" type="button" data-reset-for="order">恢复默认</button>
+          </div>
+        </section>
+
+        <section class="asset-row" data-asset-row="recharge">
+          <div class="asset-row-head">
+            <div>
+              <div class="asset-row-title">会员充值图</div>
+              <div class="asset-row-meta">右上功能卡</div>
+            </div>
+            <div class="asset-status" data-asset-status="recharge">默认素材</div>
+          </div>
+          <div class="asset-actions">
+            <label class="asset-upload">上传图片<input type="file" accept="image/*" data-upload-for="recharge"></label>
+            <button class="asset-reset" type="button" data-reset-for="recharge">恢复默认</button>
+          </div>
+        </section>
+
+        <section class="asset-row" data-asset-row="group">
+          <div class="asset-row-head">
+            <div>
+              <div class="asset-row-title">积分商城图</div>
+              <div class="asset-row-meta">右下功能卡</div>
+            </div>
+            <div class="asset-status" data-asset-status="group">默认素材</div>
+          </div>
+          <div class="asset-actions">
+            <label class="asset-upload">上传图片<input type="file" accept="image/*" data-upload-for="group"></label>
+            <button class="asset-reset" type="button" data-reset-for="group">恢复默认</button>
+          </div>
+        </section>
+
+        <section class="asset-row" data-asset-row="book">
+          <div class="asset-row-head">
+            <div>
+              <div class="asset-row-title">堂食预点图</div>
+              <div class="asset-row-meta">底部快捷入口 1</div>
+            </div>
+            <div class="asset-status" data-asset-status="book">默认素材</div>
+          </div>
+          <div class="asset-actions">
+            <label class="asset-upload">上传图片<input type="file" accept="image/*" data-upload-for="book"></label>
+            <button class="asset-reset" type="button" data-reset-for="book">恢复默认</button>
+          </div>
+        </section>
+
+        <section class="asset-row" data-asset-row="member">
+          <div class="asset-row-head">
+            <div>
+              <div class="asset-row-title">会员好礼图标</div>
+              <div class="asset-row-meta">底部快捷入口 2</div>
+            </div>
+            <div class="asset-status" data-asset-status="member">默认素材</div>
+          </div>
+          <div class="asset-actions">
+            <label class="asset-upload">上传图片<input type="file" accept="image/*" data-upload-for="member"></label>
+            <button class="asset-reset" type="button" data-reset-for="member">恢复默认</button>
+          </div>
+        </section>
+
+        <section class="asset-row" data-asset-row="mall">
+          <div class="asset-row-head">
+            <div>
+              <div class="asset-row-title">社群福利图</div>
+              <div class="asset-row-meta">底部快捷入口 3</div>
+            </div>
+            <div class="asset-status" data-asset-status="mall">默认素材</div>
+          </div>
+          <div class="asset-actions">
+            <label class="asset-upload">上传图片<input type="file" accept="image/*" data-upload-for="mall"></label>
+            <button class="asset-reset" type="button" data-reset-for="mall">恢复默认</button>
+          </div>
+        </section>
+
+        <section class="asset-row" data-asset-row="banner1">
+          <div class="asset-row-head">
+            <div>
+              <div class="asset-row-title">轮播 Banner 1</div>
+              <div class="asset-row-meta">中部轮播第一张</div>
+            </div>
+            <div class="asset-status" data-asset-status="banner1">默认素材</div>
+          </div>
+          <div class="asset-actions">
+            <label class="asset-upload">上传图片<input type="file" accept="image/*" data-upload-for="banner1"></label>
+            <button class="asset-reset" type="button" data-reset-for="banner1">恢复默认</button>
+          </div>
+        </section>
+
+        <section class="asset-row" data-asset-row="banner2">
+          <div class="asset-row-head">
+            <div>
+              <div class="asset-row-title">轮播 Banner 2</div>
+              <div class="asset-row-meta">中部轮播第二张</div>
+            </div>
+            <div class="asset-status" data-asset-status="banner2">默认素材</div>
+          </div>
+          <div class="asset-actions">
+            <label class="asset-upload">上传图片<input type="file" accept="image/*" data-upload-for="banner2"></label>
+            <button class="asset-reset" type="button" data-reset-for="banner2">恢复默认</button>
+          </div>
+        </section>
+
+        <section class="asset-row" data-asset-row="banner3">
+          <div class="asset-row-head">
+            <div>
+              <div class="asset-row-title">轮播 Banner 3</div>
+              <div class="asset-row-meta">中部轮播第三张</div>
+            </div>
+            <div class="asset-status" data-asset-status="banner3">默认素材</div>
+          </div>
+          <div class="asset-actions">
+            <label class="asset-upload">上传图片<input type="file" accept="image/*" data-upload-for="banner3"></label>
+            <button class="asset-reset" type="button" data-reset-for="banner3">恢复默认</button>
+          </div>
+        </section>
+
+        <section class="asset-row" data-asset-row="bottomBanner">
+          <div class="asset-row-head">
+            <div>
+              <div class="asset-row-title">底部 Banner</div>
+              <div class="asset-row-meta">底部整块活动图</div>
+            </div>
+            <div class="asset-status" data-asset-status="bottomBanner">默认素材</div>
+          </div>
+          <div class="asset-actions">
+            <label class="asset-upload">上传图片<input type="file" accept="image/*" data-upload-for="bottomBanner"></label>
+            <button class="asset-reset" type="button" data-reset-for="bottomBanner">恢复默认</button>
+          </div>
+        </section>
+      </div>
+
+      <button class="asset-reset-all" type="button" data-reset-all>恢复全部默认素材</button>
+    </div>
+  </details>
+
+  <script>
+    (function () {
+      var assetDefaults = {
+        pageBgArt: 'index-static/page-bg.svg',
+        heroBanner: 'index-static/hero-premium-v2.png',
+        logo: 'index-static/logo.png',
+        order: 'index-static/order-premium.svg',
+        recharge: 'index-static/recharge-premium.svg',
+        group: 'index-static/group-premium.svg',
+        book: 'index-static/book-premium.svg',
+        member: 'index-static/member-premium.svg',
+        mall: 'index-static/mall-premium.svg',
+        banner1: 'index-static/banner-inspired-1.png',
+        banner2: 'index-static/banner-inspired-2.png',
+        banner3: 'index-static/banner-inspired-3.png',
+        bottomBanner: 'index-static/bottom-banner-inspired.png'
+      };
+      var assetObjectUrls = {};
+      var assetInputs = {};
+      var assetStatuses = {};
+
+      function getAssetNodes(key) {
+        return Array.prototype.slice.call(document.querySelectorAll('[data-asset-key="' + key + '"]'));
+      }
+
+      function setStatus(key, text) {
+        var statusNode = assetStatuses[key];
+        if (statusNode) {
+          statusNode.textContent = text;
+        }
+      }
+
+      function revokeObjectUrl(key) {
+        if (assetObjectUrls[key]) {
+          URL.revokeObjectURL(assetObjectUrls[key]);
+          delete assetObjectUrls[key];
+        }
+      }
+
+      function applyAsset(key, source) {
+        if (key === 'pageBgArt') {
+          document.documentElement.style.setProperty('--page-bg-art', 'url("' + source + '")');
+          return;
+        }
+
+        getAssetNodes(key).forEach(function (node) {
+          node.src = source;
+        });
+      }
+
+      function resetAsset(key) {
+        revokeObjectUrl(key);
+        applyAsset(key, assetDefaults[key]);
+        setStatus(key, '默认素材');
+      }
+
+      Object.keys(assetDefaults).forEach(function (key) {
+        assetStatuses[key] = document.querySelector('[data-asset-status="' + key + '"]');
+      });
+
+      Array.prototype.slice.call(document.querySelectorAll('[data-upload-for]')).forEach(function (input) {
+        var key = input.getAttribute('data-upload-for');
+        assetInputs[key] = input;
+
+        input.addEventListener('change', function (event) {
+          var file = event.target.files && event.target.files[0];
+          var objectUrl;
+
+          if (!file) {
+            return;
+          }
+
+          revokeObjectUrl(key);
+          objectUrl = URL.createObjectURL(file);
+          assetObjectUrls[key] = objectUrl;
+          applyAsset(key, objectUrl);
+          setStatus(key, file.name);
+          event.target.value = '';
+        });
+      });
+
+      Array.prototype.slice.call(document.querySelectorAll('[data-reset-for]')).forEach(function (button) {
+        button.addEventListener('click', function () {
+          resetAsset(button.getAttribute('data-reset-for'));
+        });
+      });
+
+      Array.prototype.slice.call(document.querySelectorAll('.editable-asset')).forEach(function (node) {
+        var key = node.getAttribute('data-asset-key');
+        var input = assetInputs[key];
+
+        function openPicker() {
+          if (input) {
+            input.click();
+          }
+        }
+
+        node.addEventListener('click', openPicker);
+        node.addEventListener('keydown', function (event) {
+          if (event.key === 'Enter' || event.key === ' ') {
+            event.preventDefault();
+            openPicker();
+          }
+        });
+      });
+
+      document.querySelector('[data-reset-all]').addEventListener('click', function () {
+        Object.keys(assetDefaults).forEach(resetAsset);
+      });
+
+      var bannerIndex = 0;
+      var bannerSlides = Array.prototype.slice.call(document.querySelectorAll('.banner-slide'));
+      var bannerDots = Array.prototype.slice.call(document.querySelectorAll('.banner-dot'));
+
+      function activate(items, nextIndex) {
+        items.forEach(function (item, index) {
+          item.classList.toggle('active', index === nextIndex);
+        });
+      }
+
+      function nextBanner() {
+        bannerIndex = (bannerIndex + 1) % bannerSlides.length;
+        activate(bannerSlides, bannerIndex);
+        activate(bannerDots, bannerIndex);
+      }
+
+      if (bannerSlides.length > 1) {
+        window.setInterval(nextBanner, 3000);
+      }
+    })();
+  </script>
+</body>
+</html>
