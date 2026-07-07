@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>供应链数据 - 严明星数据处理中心</title>
+  <link rel="stylesheet" href="../assets/site.css">
+</head>
+<body>
+  <main class="shell">
+    <nav class="topbar" aria-label="页面导航">
+      <a class="back-link" href="../">返回首页</a>
+      <span class="eyebrow">Supply Chain</span>
+    </nav>
+
+    <header class="hero">
+      <p class="eyebrow">Department 01</p>
+      <h1>供应链数据处理</h1>
+      <p class="hero-copy">这里先放供应链模块。每个模块都能继续点进去，上传文件，等待后端 Python 脚本处理，然后下载结果。</p>
+    </header>
+
+    <section class="section" aria-labelledby="module-title">
+      <div class="section-head">
+        <div>
+          <p class="eyebrow">Modules</p>
+          <h2 id="module-title">选择一个处理功能</h2>
+        </div>
+      </div>
+
+      <div class="module-grid">
+        <a class="module-card" href="summary/">
+          <span class="card-index">SC-01</span>
+          <h3>供应链汇总处理</h3>
+          <p>用于把上传的供应链原始表交给 Python 汇总、清洗、生成结果表。</p>
+          <ul>
+            <li>适合 Excel / CSV</li>
+            <li>输出处理后的结果文件</li>
+            <li>后端脚本可随时替换</li>
+          </ul>
+          <span class="card-action">进入上传页</span>
+        </a>
+
+        <a class="module-card" href="inventory/">
+          <span class="card-index">SC-02</span>
+          <h3>库存与缺货检查</h3>
+          <p>预留给库存、缺货、周转、异常商品等检查逻辑。</p>
+          <ul>
+            <li>可接多文件上传</li>
+            <li>可输出异常清单</li>
+            <li>模块名后续可改</li>
+          </ul>
+          <span class="card-action">进入上传页</span>
+        </a>
+
+        <a class="module-card" href="reconcile/">
+          <span class="card-index">SC-03</span>
+          <h3>供应商对账处理</h3>
+          <p>预留给供应商对账、差异匹配、应付核对等脚本。</p>
+          <ul>
+            <li>上传对账来源表</li>
+            <li>后端执行 Python</li>
+            <li>下载差异结果</li>
+          </ul>
+          <span class="card-action">进入上传页</span>
+        </a>
+      </div>
+    </section>
+  </main>
+</body>
+</html>
