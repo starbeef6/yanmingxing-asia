@@ -129,6 +129,24 @@ h3 {
   gap: 12px;
 }
 
+.token-field {
+  display: grid;
+  gap: 0.4rem;
+  width: min(100%, 26rem);
+  color: var(--ink-soft);
+  font-size: 0.85rem;
+}
+
+.token-field input {
+  width: 100%;
+  box-sizing: border-box;
+  border: 1px solid var(--line);
+  border-radius: 0.6rem;
+  background: #fffdf7;
+  color: var(--ink);
+  padding: 0.7rem 0.8rem;
+}
+
 .button {
   display: inline-flex;
   align-items: center;

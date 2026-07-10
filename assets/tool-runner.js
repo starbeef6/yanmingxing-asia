@@ -1,5 +1,5 @@
 (function () {
-  var API_BASE_URL = "";
+  var API_BASE_URL = "https://file-hub-api-smuzijgeaq-as.a.run.app";
   var tools = {
     "supply-summary": {
       title: "供应链汇总处理",
@@ -38,11 +38,16 @@
   var clearButton = document.querySelector("[data-clear-files]");
   var statusBox = document.querySelector("[data-status]");
   var downloadLink = document.querySelector("[data-download-link]");
+  var tokenInput = document.querySelector("[data-api-token]");
   var titleNode = document.querySelector("[data-tool-title]");
   var descriptionNode = document.querySelector("[data-tool-description]");
   var endpointNode = document.querySelector("[data-tool-endpoint]");
   var selectedFiles = [];
   var downloadUrl = "";
+
+  function getToken() {
+    return tokenInput ? tokenInput.value.trim() : "";
+  }
 
   function setStatus(message, type) {
     statusBox.textContent = message;
@@ -95,7 +100,12 @@
     });
 
     if (!API_BASE_URL) {
-      setStatus("前端流程已经跑通，但后端 API_BASE_URL 还没有配置。接下来部署 FastAPI/Render 后，把地址填到 assets/tool-runner.js 就能提交文件。", "error");
+      setStatus("后端地址尚未配置。", "error");
+      return;
+    }
+
+    if (!getToken()) {
+      setStatus("请输入访问令牌后再处理。", "error");
       return;
     }
 
@@ -105,7 +115,8 @@
     try {
       var response = await fetch(API_BASE_URL + tool.endpoint, {
         method: "POST",
-        body: formData
+        body: formData,
+        headers: { "X-Token": getToken() }
       });
 
       if (!response.ok) {
@@ -137,6 +148,12 @@
   titleNode.textContent = tool.title;
   descriptionNode.textContent = tool.description;
   endpointNode.textContent = tool.endpoint;
+  if (tokenInput) {
+    tokenInput.value = window.localStorage.getItem("file-hub-api-token") || "";
+    tokenInput.addEventListener("change", function () {
+      window.localStorage.setItem("file-hub-api-token", getToken());
+    });
+  }
   fileInput.accept = tool.accept;
   fileInput.multiple = tool.multiple;
   renderFiles();
