@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="theme-color" content="#f5f5f7">
+  <title>文件处理 - 数据处理中心</title>
+  <link rel="stylesheet" href="../assets/site.css">
+</head>
+<body>
+  <main class="app-shell runner-shell" data-page="runner">
+    <nav class="page-nav" aria-label="页面导航">
+      <a class="back-link" href="../" data-back-link>
+        <svg viewBox="0 0 20 20" fill="none" aria-hidden="true"><path d="m12.5 4.5-5 5.5 5 5.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        处理流程
+      </a>
+      <span class="quiet-label" data-department-label></span>
+    </nav>
+
+    <header class="page-header">
+      <h1 data-tool-title>文件处理</h1>
+      <p data-tool-description>上传文件，处理完成后下载结果。</p>
+    </header>
+
+    <ol class="workflow" aria-label="处理进度">
+      <li class="active" data-workflow-step="upload" data-step="1">上传</li>
+      <li data-workflow-step="process" data-step="2">处理</li>
+      <li data-workflow-step="download" data-step="3">下载</li>
+    </ol>
+
+    <section class="runner-card" aria-label="文件处理操作">
+      <label class="drop-zone" data-drop-zone>
+        <input type="file" data-file-input>
+        <span>
+          <span class="upload-symbol">
+            <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M12 16V4m0 0L7.5 8.5M12 4l4.5 4.5M5 14v4.5A1.5 1.5 0 0 0 6.5 20h11a1.5 1.5 0 0 0 1.5-1.5V14" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          </span>
+          <strong>选择或拖入文件</strong>
+          <small data-file-hint>支持 Excel 和 CSV，可选择多个文件</small>
+        </span>
+      </label>
+
+      <div class="file-list" data-file-list aria-live="polite"></div>
+
+      <ul class="feedback-list" aria-live="polite">
+        <li class="feedback-item" data-upload-status><span class="feedback-dot">1</span><span>等待上传</span></li>
+        <li class="feedback-item" data-process-status><span class="feedback-dot">2</span><span>等待处理</span></li>
+      </ul>
+
+      <details class="access-settings" data-token-settings>
+        <summary>访问设置</summary>
+        <label class="token-field">访问令牌
+          <input type="password" data-api-token autocomplete="off" placeholder="首次使用时输入一次">
+        </label>
+      </details>
+
+      <div class="runner-actions">
+        <button class="button primary" type="button" data-run-tool disabled>开始处理</button>
+        <a class="button download" href="#" data-download-link hidden>下载结果</a>
+      </div>
+      <button class="clear-button" type="button" data-clear-files hidden>重新选择文件</button>
+    </section>
+  </main>
+  <script src="../assets/catalog.js"></script>
+  <script src="../assets/tool-runner.js"></script>
+</body>
+</html>

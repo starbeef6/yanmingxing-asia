@@ -3,76 +3,25 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>严明星数据处理中心</title>
+  <meta name="theme-color" content="#f5f5f7">
+  <title>数据处理中心</title>
   <link rel="stylesheet" href="assets/site.css">
 </head>
 <body>
-  <main class="shell">
-    <header class="hero">
-      <p class="eyebrow">Cloud File Processing Hub</p>
-      <h1>严明星数据处理中心</h1>
-      <p class="hero-copy">先把供应链文件处理跑通；后续可以继续增加财务、门店、运营等部门入口。前端负责选择流程，后端 Python 负责处理文件并返回结果。</p>
-      <div class="hero-actions">
-        <a class="button primary" href="supply-chain/">进入供应链数据</a>
-        <a class="button ghost" href="#architecture">查看处理链路</a>
-      </div>
+  <main class="app-shell" data-page="departments">
+    <nav class="brand-bar" aria-label="站点导航">
+      <span class="brand">数据处理中心</span>
+      <span class="quiet-label">Cloud Processing</span>
+    </nav>
+
+    <header class="page-header">
+      <h1>选择部门</h1>
+      <p>进入对应部门，选择需要运行的文件处理流程。</p>
     </header>
 
-    <section class="section" aria-labelledby="department-title">
-      <div class="section-head">
-        <p class="eyebrow">Departments</p>
-        <h2 id="department-title">部门入口</h2>
-      </div>
-      <div class="department-grid">
-        <a class="department-card active-card" href="supply-chain/">
-          <span class="card-index">01</span>
-          <h3>供应链数据</h3>
-          <p>上传 Excel / CSV，选择处理模块，由云端 Python 脚本生成结果文件。</p>
-          <span class="card-action">进入模块</span>
-        </a>
-        <article class="department-card muted-card">
-          <span class="card-index">02</span>
-          <h3>财务数据</h3>
-          <p>预留入口。后续可接费用表、门店流水、对账等处理流程。</p>
-          <span class="card-action muted">待配置</span>
-        </article>
-        <article class="department-card muted-card">
-          <span class="card-index">03</span>
-          <h3>门店运营</h3>
-          <p>预留入口。后续可接门店日报、排班、库存巡检等流程。</p>
-          <span class="card-action muted">待配置</span>
-        </article>
-      </div>
-    </section>
-
-    <section class="section architecture" id="architecture" aria-labelledby="architecture-title">
-      <div class="section-head">
-        <p class="eyebrow">Runtime Flow</p>
-        <h2 id="architecture-title">网页到 Python 的处理链路</h2>
-      </div>
-      <div class="flow">
-        <div class="flow-step">
-          <span>1</span>
-          <strong>选择部门</strong>
-          <p>当前先进入供应链数据。</p>
-        </div>
-        <div class="flow-step">
-          <span>2</span>
-          <strong>选择模块</strong>
-          <p>每个模块对应一个后端 Python 脚本。</p>
-        </div>
-        <div class="flow-step">
-          <span>3</span>
-          <strong>上传文件</strong>
-          <p>网页把文件提交给后端 API。</p>
-        </div>
-        <div class="flow-step">
-          <span>4</span>
-          <strong>下载结果</strong>
-          <p>后端处理完成后返回 Excel / CSV 文件。</p>
-        </div>
-      </div>
-    </section>
+    <section class="choice-list" data-department-list aria-label="部门列表"></section>
   </main>
+  <script src="assets/catalog.js"></script>
+  <script src="assets/portal.js"></script>
 </body>
 </html>
