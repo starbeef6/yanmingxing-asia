@@ -1,0 +1,72 @@
+{
+  "month": "2026-09",
+  "start": "2026-09-01",
+  "end": "2026-09-30",
+  "fetchedAt": "2026-10-10T14:49:50Z",
+  "source": {
+    "label": "Navicat 查询导出快照 · 同步后刷新网页读取",
+    "mode": "snapshot",
+    "queryStrategy": "full-period-requery",
+    "sourceRefreshedAt": null,
+    "completenessCheck": "all-completed-days-and-six-scopes",
+    "queryTimestampVerified": false,
+    "timestampNote": "保留 SQL queried_at；数据库时钟与 UTC+8 标注尚待现场核实，未以本地转换时间替代。",
+    "sourceRefreshNote": "输入未提供上游重算或更新时点；查询时间不能替代源更新时点。",
+    "sourceRows": {
+      "全国": 29401,
+      "北区": 7051,
+      "西区": 7983,
+      "南区": 8188,
+      "四川地区": 3422,
+      "江苏地区": 2757
+    }
+  },
+  "sourceComplete": false,
+  "dataQualityWarning": "Navicat 定时查询快照；综合表口径、全国与五区及历史补录覆盖尚未完成现场复核。",
+  "status": "OK",
+  "rows": [
+    {
+      "region": "全国",
+      "gmv": 48986246.67060004,
+      "storeDays": 27361,
+      "storeAverage": 1790.367554935859,
+      "status": "OK"
+    },
+    {
+      "region": "北区",
+      "gmv": 10986296.53,
+      "storeDays": 6435,
+      "storeAverage": 1707.272188034188,
+      "status": "OK"
+    },
+    {
+      "region": "西区",
+      "gmv": 14160895.78000004,
+      "storeDays": 7578,
+      "storeAverage": 1868.685112166804,
+      "status": "OK"
+    },
+    {
+      "region": "南区",
+      "gmv": 13579212.37,
+      "storeDays": 7673,
+      "storeAverage": 1769.7396546331292,
+      "status": "OK"
+    },
+    {
+      "region": "四川地区",
+      "gmv": 6669985.0716,
+      "storeDays": 3316,
+      "storeAverage": 2011.455087937274,
+      "status": "OK"
+    },
+    {
+      "region": "江苏地区",
+      "gmv": 3589856.919,
+      "storeDays": 2359,
+      "storeAverage": 1521.7706311996608,
+      "status": "OK"
+    }
+  ],
+  "targets": {}
+}
