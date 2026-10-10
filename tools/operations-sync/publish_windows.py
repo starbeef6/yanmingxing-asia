@@ -175,15 +175,36 @@ class Git:
 def publication_lock(repo: Path):
     repo.parent.mkdir(parents=True, exist_ok=True)
     path = repo.parent / (repo.name + ".dashboard-publish.lock")
+    # Keep the tiny file: unlinking after unlock can split ownership across two
+    # inodes. Kernel-held locks release automatically on crash or restart.
+    stream = path.open("a+b")
+    acquired = False
     try:
-        descriptor = os.open(path, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
-    except FileExistsError:
-        raise PublishError("已有同步正在执行，或异常退出遗留了专用锁；本轮不覆盖。") from None
-    try:
-        os.close(descriptor)
+        if os.fstat(stream.fileno()).st_size == 0:
+            stream.write(b"\0")
+            stream.flush()
+        stream.seek(0)
+        try:
+            if os.name == "nt":
+                import msvcrt
+                msvcrt.locking(stream.fileno(), msvcrt.LK_NBLCK, 1)
+            else:
+                import fcntl
+                fcntl.flock(stream.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+            acquired = True
+        except OSError:
+            raise PublishError("已有发布正在执行；本轮不覆盖。") from None
         yield
     finally:
-        path.unlink(missing_ok=True)
+        if acquired:
+            stream.seek(0)
+            if os.name == "nt":
+                import msvcrt
+                msvcrt.locking(stream.fileno(), msvcrt.LK_UNLCK, 1)
+            else:
+                import fcntl
+                fcntl.flock(stream.fileno(), fcntl.LOCK_UN)
+        stream.close()
 
 
 def ensure_dedicated_repo(repo: Path, git: Git) -> None:
@@ -338,6 +359,32 @@ def self_test() -> int:
             return ""
 
     class Tests(unittest.TestCase):
+        def test_lock_file_survives_but_does_not_block_recovery(self):
+            with tempfile.TemporaryDirectory() as directory:
+                repo = Path(directory) / "site"
+                lock_path = repo.parent / (repo.name + ".dashboard-publish.lock")
+                with publication_lock(repo):
+                    with self.assertRaises(PublishError):
+                        with publication_lock(repo):
+                            self.fail("concurrent publication must be rejected")
+                self.assertTrue(lock_path.is_file())
+                with publication_lock(repo):
+                    self.assertTrue(lock_path.is_file())
+        def test_process_crash_releases_lock_without_deleting_file(self):
+            with tempfile.TemporaryDirectory() as directory:
+                repo = Path(directory) / "site"
+                program = (
+                    "import os,sys; from pathlib import Path; "
+                    "from publish_windows import publication_lock; "
+                    "handle=publication_lock(Path(sys.argv[1])); "
+                    "handle.__enter__(); os._exit(0)"
+                )
+                child = subprocess.run([sys.executable, "-B", "-c", program, str(repo)],
+                                       cwd=Path(__file__).resolve().parent, capture_output=True, timeout=10)
+                self.assertEqual(child.returncode, 0)
+                self.assertTrue((repo.parent / (repo.name + ".dashboard-publish.lock")).is_file())
+                with publication_lock(repo):
+                    pass
         def test_path_mixup_rejected_without_opening_private_key(self):
             with tempfile.TemporaryDirectory() as directory:
                 base = Path(directory)
