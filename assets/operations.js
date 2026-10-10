@@ -101,7 +101,7 @@
         (!validDate(payload.end) || !payload.end.startsWith(requestedMonth) || payload.end < payload.start))) {
       throw new Error("快照的实际日期范围有误，请重新刷新。");
     }
-    if ((payload.end !== null || payload.fetchedAt !== null) && (typeof payload.fetchedAt !== "string" ||
+    if ((payload.end !== null || payload.fetchedAt !== null || payload.source.expectedThrough != null) && (typeof payload.fetchedAt !== "string" ||
         !/(?:Z|[+-]\d{2}:\d{2})$/.test(payload.fetchedAt) || !Number.isFinite(Date.parse(payload.fetchedAt)))) {
       throw new Error("快照未提供有效的取数时间，请重新刷新。");
     }
