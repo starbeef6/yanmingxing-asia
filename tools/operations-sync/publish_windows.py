@@ -528,7 +528,7 @@ def self_test() -> int:
                                                  author_name="Synthetic", author_email="synthetic@example.invalid",
                                                  now=early_clock)
                     self.assertEqual(result, "pushed")
-                    published = json.loads((base / "site" / PATHS[1]).read_text())
+                    published = json.loads((base / "site" / PATHS[1]).read_text(encoding="utf-8"))
                     self.assertEqual(published["end"], cutoff)
                     self.assertEqual(published["rows"][0]["operatingStoresDate"], cutoff)
         def test_latest_main_cutoff_regression_rejects_before_any_monthly_write(self):
@@ -619,7 +619,7 @@ def self_test() -> int:
                 result, _ = publish_payloads(incoming, repo, FakeGit(on_reset=reset_to_latest),
                                              author_name="Synthetic", author_email="synthetic@example.invalid", now=clock)
                 self.assertEqual(result, "pushed")
-                updated = json.loads((repo / PATHS[1]).read_text())
+                updated = json.loads((repo / PATHS[1]).read_text(encoding="utf-8"))
                 self.assertEqual(updated["end"], previous["2026-10"]["end"])
                 self.assertEqual(updated["rows"][0]["gmv"], previous["2026-10"]["rows"][0]["gmv"] + 10)
                 self.assertEqual(updated["rows"][0]["operatingStores"], 1)
@@ -642,7 +642,7 @@ def self_test() -> int:
                                              FakeGit(on_reset=reset_to_latest), author_name="Synthetic",
                                              author_email="synthetic@example.invalid", now=clock)
                 self.assertEqual(result, "pushed")
-                self.assertEqual(json.loads((repo / PATHS[0]).read_text())["rows"][0]["operatingStores"], 1)
+                self.assertEqual(json.loads((repo / PATHS[0]).read_text(encoding="utf-8"))["rows"][0]["operatingStores"], 1)
         def test_legacy_all_five_field_rows_remain_accepted(self):
             payloads = build_snapshots(fixture(), ALLOWED_MONTHS, now=clock)
             for payload in payloads.values():
@@ -827,7 +827,7 @@ def self_test() -> int:
                      patch(__name__ + ".wait_for_export", side_effect=PublishError("synthetic incomplete export")), \
                      patch("sys.stderr", io.StringIO()):
                     self.assertEqual(main(args), 1)
-                self.assertEqual(previous.read_text(), "synthetic prior successful snapshot")
+                self.assertEqual(previous.read_text(encoding="utf-8"), "synthetic prior successful snapshot")
                 self.assertEqual(git.calls, [])
         def test_single_commit_exact_paths_and_no_force(self):
             with tempfile.TemporaryDirectory() as directory:
@@ -857,7 +857,7 @@ def self_test() -> int:
                 with self.assertRaises(PublishError):
                     publish_payloads(build_snapshots(fixture(), ALLOWED_MONTHS, now=clock), repo, git,
                                      author_name="Synthetic", author_email="synthetic@example.invalid", now=clock)
-                self.assertEqual(state.read_text(), old)
+                self.assertEqual(state.read_text(encoding="utf-8"), old)
         def test_real_clock_short_schedule_gap_waits_then_publishes(self):
             from datetime import datetime as ActualDatetime
             for missing_seconds in (14, 60):
@@ -881,7 +881,7 @@ def self_test() -> int:
                                                           author_email="synthetic@example.invalid")
                     self.assertEqual((result, commit), ("pushed", "b" * 40))
                     sleeper.assert_called_once_with(missing_seconds)
-                    recorded = aware_time(json.loads(state.read_text())["pushedAt"], "pushedAt")
+                    recorded = aware_time(json.loads(state.read_text(encoding="utf-8"))["pushedAt"], "pushedAt")
                     self.assertGreaterEqual(recorded - previous, timedelta(minutes=10))
         def test_real_clock_early_or_future_state_rejects_without_sleeping(self):
             from datetime import datetime as ActualDatetime
@@ -902,7 +902,7 @@ def self_test() -> int:
                             publish_payloads(build_snapshots(fixture(), ALLOWED_MONTHS, now=clock), repo, git,
                                              author_name="Synthetic", author_email="synthetic@example.invalid")
                     sleeper.assert_not_called()
-                    self.assertEqual(state.read_text(), old)
+                    self.assertEqual(state.read_text(encoding="utf-8"), old)
                     self.assertFalse(any(call[0] in ("fetch", "reset", "push") for call in git.calls))
         def test_fixed_test_clock_or_unadvanced_real_clock_cannot_bypass_interval(self):
             from datetime import datetime as ActualDatetime
@@ -927,7 +927,7 @@ def self_test() -> int:
                         sleeper.assert_not_called()
                     else:
                         sleeper.assert_called_once_with(14)
-                    self.assertEqual(state.read_text(), old)
+                    self.assertEqual(state.read_text(encoding="utf-8"), old)
                     self.assertFalse(any(call[0] in ("fetch", "reset", "push") for call in git.calls))
         def test_unowned_directory_and_unrelated_edits_are_not_reset(self):
             with tempfile.TemporaryDirectory() as directory:
@@ -937,7 +937,7 @@ def self_test() -> int:
                 git = FakeGit()
                 with self.assertRaises(PublishError):
                     ensure_dedicated_repo(repo, git)
-                self.assertEqual((repo / "my-work.txt").read_text(), "keep")
+                self.assertEqual((repo / "my-work.txt").read_text(encoding="utf-8"), "keep")
                 repo = Path(directory) / "site"
                 git = FakeGit(dirty=" M index.html\0")
                 with self.assertRaises(PublishError):
