@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="theme-color" content="#f7f6f0">
+  <meta name="description" content="全国与五个区域的 GMV、店日均和目标进度。">
+  <title>经营观察 · 明星</title>
+  <link rel="stylesheet" href="../assets/operations.css">
+</head>
+<body>
+  <main class="dashboard" id="dashboard" aria-busy="false">
+    <nav class="site-nav" aria-label="网站导航">
+      <a class="brand" href="../">明星 <span>经营看板</span></a>
+      <a class="home-link" href="../">返回首页 <span aria-hidden="true">↗</span></a>
+    </nav>
+
+    <header class="page-header">
+      <div>
+        <p class="eyebrow">OPERATING OVERVIEW</p>
+        <h1>经营观察<span class="title-dot" aria-hidden="true">.</span></h1>
+        <p class="scope" id="scope">全国 · 2026 年 10 月 · 平衡目标</p>
+      </div>
+      <div class="refresh-state">
+        <p class="status-badge" id="status-badge" data-state="waiting"><span class="status-dot" aria-hidden="true"></span><span id="status-text">等待数据服务</span></p>
+        <p class="timestamp" id="timestamp">尚未取数</p>
+      </div>
+    </header>
+
+    <section class="toolbar" aria-label="看板筛选">
+      <div class="filters">
+        <label class="select-field">月份
+          <select id="month" aria-label="查看月份">
+            <option value="2026-09">2026 年 9 月</option>
+            <option value="2026-10" selected>2026 年 10 月</option>
+            <option value="2026-11">2026 年 11 月</option>
+            <option value="2026-12">2026 年 12 月</option>
+          </select>
+          <span class="select-chevron" aria-hidden="true">⌄</span>
+        </label>
+        <label class="select-field">区域
+          <select id="region" aria-label="查看区域">
+            <option>全国</option><option>北区</option><option>西区</option><option>南区</option><option>四川地区</option><option>江苏地区</option>
+          </select>
+          <span class="select-chevron" aria-hidden="true">⌄</span>
+        </label>
+        <fieldset class="tier-field" aria-label="目标档位">
+          <legend class="sr-only">目标档位</legend>
+          <label><input type="radio" name="tier" value="保底"><span>保底</span></label>
+          <label><input type="radio" name="tier" value="平衡" checked><span>平衡</span></label>
+          <label><input type="radio" name="tier" value="冲刺"><span>冲刺</span></label>
+        </fieldset>
+      </div>
+      <button class="refresh-button" id="refresh" type="button"><span class="refresh-icon" aria-hidden="true">↻</span><span id="refresh-label">刷新数据</span></button>
+    </section>
+
+    <p class="notice" id="notice" role="status" aria-live="polite">数据服务尚未配置，暂时无法读取数据库。</p>
+
+    <section class="metric-grid" aria-label="核心经营指标">
+      <article class="metric-card metric-gmv">
+        <div class="card-heading"><h2>GMV</h2><span class="metric-caption">总营业额</span></div>
+        <p class="metric-value"><span id="gmv-value">—</span><span class="metric-unit">万元</span></p>
+        <div class="card-facts">
+          <p><span>全月目标</span><strong id="gmv-target">—</strong></p>
+          <p><span>占全月目标</span><strong id="gmv-rate">—</strong></p>
+        </div>
+        <div class="progress-track" aria-hidden="true"><span id="gmv-progress"></span></div>
+      </article>
+      <article class="metric-card metric-average">
+        <div class="card-heading"><h2>店日均</h2><span class="metric-caption">营业额 ÷ 营业店天</span></div>
+        <p class="metric-value"><span id="average-value">—</span><span class="metric-unit">元</span></p>
+        <div class="card-facts">
+          <p><span>店日均目标</span><strong id="average-target">—</strong></p>
+          <p><span>店日均达成</span><strong id="average-rate">—</strong></p>
+        </div>
+        <div class="progress-track" aria-hidden="true"><span id="average-progress"></span></div>
+      </article>
+    </section>
+
+    <section class="comparison" aria-labelledby="comparison-title">
+      <div class="section-heading"><h2 id="comparison-title">五区对照</h2><span id="comparison-period">同月 · 同目标档位</span></div>
+      <div class="table-scroll">
+        <table>
+          <thead><tr><th scope="col">区域</th><th scope="col">GMV <span>（万元）</span><span class="sort-mark" aria-hidden="true">↓</span></th><th scope="col">占全月目标</th><th scope="col">店日均 <span>（元）</span></th><th scope="col">店日均达成</th></tr></thead>
+          <tbody id="region-rows">
+            <tr><th scope="row">北区</th><td>—</td><td>—</td><td>—</td><td>—</td></tr>
+            <tr><th scope="row">西区</th><td>—</td><td>—</td><td>—</td><td>—</td></tr>
+            <tr><th scope="row">南区</th><td>—</td><td>—</td><td>—</td><td>—</td></tr>
+            <tr><th scope="row">四川地区</th><td>—</td><td>—</td><td>—</td><td>—</td></tr>
+            <tr><th scope="row">江苏地区</th><td>—</td><td>—</td><td>—</td><td>—</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+    <footer class="page-footer"><p id="source-note">数据来自数据库，刷新时重新查询所选月份。</p><p>2026 · 经营观察</p></footer>
+    <noscript><p class="notice">请启用浏览器 JavaScript，以加载数据库中的经营指标。</p></noscript>
+  </main>
+  <script>window.OPERATIONS_API_BASE = "https://magnetic-happen-mae-convert.trycloudflare.com";</script>
+  <script src="../assets/operations.js" defer></script>
+</body>
+</html>
