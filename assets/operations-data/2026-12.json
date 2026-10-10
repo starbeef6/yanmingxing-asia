@@ -8,11 +8,15 @@
     "mode": "snapshot",
     "queryStrategy": "full-period-requery",
     "sourceRefreshedAt": null,
-    "completenessCheck": "all-completed-days-and-six-scopes",
+    "completenessCheck": "continuous-input-days-and-six-scopes; historical-months-through-month-end",
+    "expectedThrough": null,
+    "dataThrough": null,
     "queryTimestampVerified": false,
     "timestampNote": "保留 SQL queried_at；数据库时钟与 UTC+8 标注尚待现场核实，未以本地转换时间替代。",
     "sourceRefreshNote": "输入未提供上游重算或更新时点；查询时间不能替代源更新时点。",
-    "sourceRows": null
+    "sourceRows": null,
+    "operatingStoresDefinition": "截止营业日总营业额大于0的门店数；原查询已校验门店日与维表唯一性。",
+    "operatingStoresMethod": "cutoff-day-positive-gmv-store-count"
   },
   "sourceComplete": false,
   "dataQualityWarning": "Navicat 定时查询快照；综合表口径、全国与五区及历史补录覆盖尚未完成现场复核。",
@@ -23,42 +27,54 @@
       "gmv": null,
       "storeDays": null,
       "storeAverage": null,
-      "status": "NO_DATA"
+      "status": "NO_DATA",
+      "operatingStores": null,
+      "operatingStoresDate": null
     },
     {
       "region": "北区",
       "gmv": null,
       "storeDays": null,
       "storeAverage": null,
-      "status": "NO_DATA"
+      "status": "NO_DATA",
+      "operatingStores": null,
+      "operatingStoresDate": null
     },
     {
       "region": "西区",
       "gmv": null,
       "storeDays": null,
       "storeAverage": null,
-      "status": "NO_DATA"
+      "status": "NO_DATA",
+      "operatingStores": null,
+      "operatingStoresDate": null
     },
     {
       "region": "南区",
       "gmv": null,
       "storeDays": null,
       "storeAverage": null,
-      "status": "NO_DATA"
+      "status": "NO_DATA",
+      "operatingStores": null,
+      "operatingStoresDate": null
     },
     {
       "region": "四川地区",
       "gmv": null,
       "storeDays": null,
       "storeAverage": null,
-      "status": "NO_DATA"
+      "status": "NO_DATA",
+      "operatingStores": null,
+      "operatingStoresDate": null
     },
     {
       "region": "江苏地区",
       "gmv": null,
       "storeDays": null,
       "storeAverage": null,
-      "status": "NO_DATA"
+      "status": "NO_DATA",
+      "operatingStores": null,
+      "operatingStoresDate": null
     }
   ],
   "targets": {}
