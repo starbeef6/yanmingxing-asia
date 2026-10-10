@@ -28,6 +28,8 @@ ALLOWED_MONTHS = ("2026-09", "2026-10", "2026-11", "2026-12")
 INPUT_FIELDS = {"business_date", "region", "gmv", "store_days", "queried_at", "source_rows"}
 MAX_SAFE_INTEGER = 2**53 - 1
 QUALITY_WARNING = "Navicat 定时查询快照；综合表口径、全国与五区及历史补录覆盖尚未完成现场复核。"
+OPERATING_STORES_DEFINITION = "截止营业日总营业额大于0的门店数；原查询已校验门店日与维表唯一性。"
+OPERATING_STORES_METHOD = "cutoff-day-positive-gmv-store-count"
 
 
 class SnapshotError(ValueError):
@@ -168,7 +170,8 @@ def build_snapshots(raw: Any, expected_months: list[str] | tuple[str, ...], *,
         no_data = end is None
         if no_data:
             rows = [{"region": region, "gmv": None, "storeDays": None,
-                     "storeAverage": None, "status": "NO_DATA"} for region in REGIONS]
+                     "storeAverage": None, "status": "NO_DATA",
+                     "operatingStores": None, "operatingStoresDate": None} for region in REGIONS]
             source_rows_total = None
         else:
             expected_dates = {start + timedelta(days=offset) for offset in range((end - start).days + 1)}
@@ -192,11 +195,17 @@ def build_snapshots(raw: Any, expected_months: list[str] | tuple[str, ...], *,
                 count(total_source_rows, "累计 source_rows")
                 if total_source_rows == 0:
                     rows.append({"region": region, "gmv": None, "storeDays": None,
-                                 "storeAverage": None, "status": "NO_DATA"})
+                                 "storeAverage": None, "status": "NO_DATA",
+                                 "operatingStores": None, "operatingStoresDate": None})
                 else:
                     average = json_number(total_gmv / total_days, "storeAverage") if total_days else None
                     rows.append({"region": region, "gmv": json_number(total_gmv, "累计 gmv"),
-                                 "storeDays": total_days, "storeAverage": average, "status": "OK"})
+                                 "storeDays": total_days, "storeAverage": average, "status": "OK",
+                                 # The SQL has already checked unique store/day rows and
+                                 # dimension joins. A single day's positive-GMV store-days
+                                 # therefore count stores; a period sum does not.
+                                 "operatingStores": grouped[month][end][region]["storeDays"],
+                                 "operatingStoresDate": end.isoformat()})
                 source_rows_total[region] = total_source_rows
         payloads[month] = {
             "month": month, "start": start.isoformat(), "end": end.isoformat() if end else None,
@@ -210,6 +219,8 @@ def build_snapshots(raw: Any, expected_months: list[str] | tuple[str, ...], *,
                 "timestampNote": "保留 SQL queried_at；数据库时钟与 UTC+8 标注尚待现场核实，未以本地转换时间替代。",
                 "sourceRefreshNote": "输入未提供上游重算或更新时点；查询时间不能替代源更新时点。",
                 "sourceRows": source_rows_total,
+                "operatingStoresDefinition": OPERATING_STORES_DEFINITION,
+                "operatingStoresMethod": OPERATING_STORES_METHOD,
             },
             "sourceComplete": False, "dataQualityWarning": QUALITY_WARNING,
             "status": "OK" if any(row["status"] == "OK" for row in rows) else "NO_DATA",

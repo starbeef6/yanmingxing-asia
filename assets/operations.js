@@ -106,15 +106,25 @@
       throw new Error("快照未提供有效的取数时间，请重新刷新。");
     }
     const seen = new Set();
+    const countKeys = payload.rows.map((row) => row &&
+      ["operatingStores", "operatingStoresDate"].filter((key) => Object.hasOwn(row, key)).length);
+    const hasStoreCounts = countKeys.every((keys) => keys === 2);
+    if ((!hasStoreCounts && countKeys.some((keys) => keys !== 0)) || (hasStoreCounts &&
+        payload.source.operatingStoresMethod !== "cutoff-day-positive-gmv-store-count")) {
+      throw new Error("门店数量的口径或字段不完整，保留上次成功结果。");
+    }
     const rows = payload.rows.map((row) => {
       if (!row || !REGIONS.includes(row.region) || seen.has(row.region)) throw new Error("返回的区域数据有误，请重新刷新。");
       seen.add(row.region);
       const gmv = finite(row.gmv);
       const storeDays = finite(row.storeDays);
       const storeAverage = finite(row.storeAverage);
+      const operatingStores = hasStoreCounts ? finite(row.operatingStores) : null;
+      const operatingStoresDate = hasStoreCounts ? row.operatingStoresDate : null;
       if (row.status === "NO_DATA") {
-        if (gmv !== null || storeDays !== null || storeAverage !== null) throw new Error("暂无数据的区域返回了不一致的指标，请重新刷新。");
-        return { region: row.region, gmv: null, storeDays: null, storeAverage: null, status: "NO_DATA" };
+        if (gmv !== null || storeDays !== null || storeAverage !== null || (hasStoreCounts &&
+            (row.operatingStores !== null || operatingStoresDate !== null))) throw new Error("暂无数据的区域返回了不一致的指标，请重新刷新。");
+        return { region: row.region, gmv: null, storeDays: null, storeAverage: null, operatingStores: null, operatingStoresDate: null, status: "NO_DATA" };
       }
       if (row.status !== "OK" || gmv === null || storeDays === null || storeDays < 0 || !Number.isSafeInteger(storeDays) ||
           (storeDays > 0 && storeAverage === null) || (storeDays === 0 && storeAverage !== null)) {
@@ -124,7 +134,11 @@
       if (calculatedAverage !== null && Math.abs(calculatedAverage - storeAverage) > Math.max(1, Math.abs(calculatedAverage)) * 1e-9) {
         throw new Error("店日均与营业额、营业店天不一致，保留上次成功结果。");
       }
-      return { region: row.region, gmv, storeDays, storeAverage: calculatedAverage, status: "OK" };
+      if (hasStoreCounts && (typeof row.operatingStores !== "number" || !Number.isSafeInteger(operatingStores) ||
+          operatingStores < 0 || operatingStores > storeDays || operatingStoresDate !== payload.end || !validDate(operatingStoresDate))) {
+        throw new Error("门店数量或统计日有误，保留上次成功结果。");
+      }
+      return { region: row.region, gmv, storeDays, storeAverage: calculatedAverage, operatingStores, operatingStoresDate, status: "OK" };
     });
     if (rows.length !== REGIONS.length || REGIONS.some((region) => !seen.has(region))) {
       throw new Error("全国及五区快照不完整，请重新刷新。");
@@ -253,9 +267,17 @@
     document.querySelectorAll('input[name="tier"]').forEach((input) => { input.checked = input.value === state.tier; });
     $("scope").textContent = `${state.region} · ${period(data)} · ${state.tier}目标`;
     $("comparison-period").textContent = `${Number(state.month.slice(-2))} 月 · ${state.tier}目标`;
+    $("comparison-caption").textContent = data?.end
+      ? `目标为所选档位的全月目标；在营统计日 ${data.end.slice(5).replace("-", "/")}，按当天有营业额统计。`
+      : "目标为所选档位的全月目标；在营按实际截止日有营业额统计。";
     $("timestamp").textContent = data?.fetchedAt ? `取数：${timestamp(data.fetchedAt)}` : "尚未取数";
     $("gmv-value").textContent = number(selected?.gmv, 10000);
     $("average-value").textContent = number(selected?.storeAverage);
+    $("stores-value").textContent = selected?.operatingStores === null || selected?.operatingStores === undefined
+      ? "—" : new Intl.NumberFormat("zh-CN").format(selected.operatingStores);
+    $("stores-date").textContent = selected?.operatingStoresDate
+      ? `${selected.operatingStoresDate.slice(5).replace("-", "/")} · 有营业额门店`
+      : data?.end ? "门店数量待同步" : "暂无实际统计日";
     $("gmv-target").textContent = number(target.gmv, 10000, " 万元");
     $("average-target").textContent = number(target.storeAverage, 1, " 元");
     const gmvRatio = ratio(selected?.gmv, target.gmv);
@@ -268,8 +290,8 @@
     const forecastsAvailable = renderForecast(data) && REGIONS.slice(1).every((region) => forecastFor(region, data).available);
     const header = document.createElement("tr");
     const headers = forecastsAvailable
-      ? ["区域", "实际 GMV（万元）", "店日均（元）", "参考预计全月（万元）", "预计达成", "预计缺口 / 超额（万元）"]
-      : ["区域", "GMV（万元）", "占全月目标", "店日均（元）", "店日均达成"];
+      ? ["区域", "GMV（万元）", "店日均（元）", "参考预计全月（万元）", "预计达成", "预计缺口 / 超额（万元）"]
+      : ["区域", "GMV（万元）", "店日均（元）", "占全月目标", "店日均达成"];
     headers.forEach((label) => {
       const th = document.createElement("th");
       th.scope = "col";
@@ -289,16 +311,37 @@
       tr.dataset.selected = String(row.region === state.region);
       const heading = document.createElement("th");
       heading.scope = "row";
-      heading.textContent = row.region;
+      const regionName = document.createElement("span");
+      regionName.className = "region-name";
+      regionName.textContent = row.region;
+      const stores = document.createElement("span");
+      stores.className = "region-stores";
+      stores.textContent = row.operatingStores === null || row.operatingStores === undefined
+        ? "在营 — 家" : `在营 ${row.operatingStores} 家`;
+      stores.title = row.operatingStoresDate
+        ? `${row.operatingStoresDate} 总营业额大于 0 的门店数` : "尚无同日门店数量";
+      heading.append(regionName, stores);
       tr.appendChild(heading);
       const forecast = forecastFor(row.region, data);
       const gap = finite(forecast.gap);
       const values = forecastsAvailable
         ? [number(row.gmv, 10000), number(row.storeAverage), number(forecast.gmv, 10000), percent(forecast.attainment), gap === null ? "—" : Math.abs(gap) < 0.005 ? "持平" : `${gap > 0 ? "缺口" : "超额"} ${number(Math.abs(gap), 10000)}`]
-        : [number(row.gmv, 10000), percent(ratio(row.gmv, regionTarget.gmv)), number(row.storeAverage), percent(ratio(row.storeAverage, regionTarget.storeAverage))];
+        : [number(row.gmv, 10000), number(row.storeAverage), percent(ratio(row.gmv, regionTarget.gmv)), percent(ratio(row.storeAverage, regionTarget.storeAverage))];
       values.forEach((value, index) => {
         const td = document.createElement("td");
-        td.textContent = value;
+        const targetMetric = index === 0 ? { value: regionTarget.gmv, divisor: 10000 }
+          : index === 1 ? { value: regionTarget.storeAverage, divisor: 1 } : null;
+        if (targetMetric) {
+          const actual = document.createElement("span");
+          actual.className = "table-actual";
+          actual.textContent = value;
+          const targetLine = document.createElement("span");
+          targetLine.className = "table-target";
+          targetLine.textContent = `目标 ${number(targetMetric.value, targetMetric.divisor)}`;
+          td.append(actual, targetLine);
+        } else {
+          td.textContent = value;
+        }
         if (forecastsAvailable && index === 4 && gap !== null) td.dataset.kind = gap > 0 ? "shortfall" : "surplus";
         tr.appendChild(td);
       });

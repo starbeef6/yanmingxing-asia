@@ -26,7 +26,8 @@ import time
 from typing import Any
 
 from convert_snapshot import (
-    ALLOWED_MONTHS, REGIONS, SnapshotError, aware_time, build_snapshots,
+    ALLOWED_MONTHS, MAX_SAFE_INTEGER, OPERATING_STORES_METHOD,
+    REGIONS, SnapshotError, aware_time, build_snapshots,
     input_records, load_export, write_snapshots_atomic,
 )
 
@@ -41,6 +42,8 @@ MARKER = "operations-dashboard-publisher.json"
 PUBLISH_STATE = "operations-dashboard-last-push.json"
 TOP_FIELDS = {"month", "start", "end", "fetchedAt", "source", "sourceComplete",
               "dataQualityWarning", "status", "rows", "targets"}
+LEGACY_ROW_FIELDS = {"region", "gmv", "storeDays", "storeAverage", "status"}
+CURRENT_ROW_FIELDS = LEGACY_ROW_FIELDS | {"operatingStores", "operatingStoresDate"}
 
 
 class PublishError(RuntimeError):
@@ -230,6 +233,7 @@ def validate_payloads(payloads: dict[str, dict[str, Any]]) -> dict[str, bytes]:
     if set(payloads) != set(ALLOWED_MONTHS):
         raise PublishError("必须一次发布九至十二月四份已验证快照。")
     contents = {}
+    batch_row_fields = None
     for month in ALLOWED_MONTHS:
         payload = payloads[month]
         if (set(payload) != TOP_FIELDS or payload.get("month") != month
@@ -237,6 +241,38 @@ def validate_payloads(payloads: dict[str, dict[str, Any]]) -> dict[str, bytes]:
                 or payload.get("source", {}).get("mode") != "snapshot"
                 or [row.get("region") for row in payload.get("rows", [])] != list(REGIONS)):
             raise PublishError("快照结构或公开字段不符合已核准格式。")
+        for row in payload["rows"]:
+            row_fields = set(row)
+            if row_fields not in (LEGACY_ROW_FIELDS, CURRENT_ROW_FIELDS):
+                raise PublishError("区域行含未核准字段或缺少必需字段。")
+            if batch_row_fields is None:
+                batch_row_fields = row_fields
+            elif row_fields != batch_row_fields:
+                raise PublishError("四个月六个范围必须统一使用同一版区域行格式。")
+            if row_fields == CURRENT_ROW_FIELDS:
+                if payload["source"].get("operatingStoresMethod") != OPERATING_STORES_METHOD:
+                    raise PublishError("在营门店数未使用已核准的截止日正营业额口径。")
+                stores, stores_date = row["operatingStores"], row["operatingStoresDate"]
+                if row["status"] == "NO_DATA":
+                    if stores is not None or stores_date is not None:
+                        raise PublishError("无实际数据的区域不能发布在营门店数或统计日期。")
+                elif row["status"] == "OK":
+                    cumulative_days = row["storeDays"]
+                    if (type(stores) is not int or not 0 <= stores <= MAX_SAFE_INTEGER
+                            or type(cumulative_days) is not int
+                            or not 0 <= cumulative_days <= MAX_SAFE_INTEGER
+                            or stores > cumulative_days):
+                        raise PublishError("截止日在营门店数须为有效非负整数，且不超过累计营业店天。")
+                    if (not isinstance(stores_date, str)
+                            or not re.fullmatch(r"\d{4}-\d{2}-\d{2}", stores_date)
+                            or stores_date != payload["end"]):
+                        raise PublishError("在营门店数日期须等于快照实际截止营业日。")
+                    try:
+                        datetime.strptime(stores_date, "%Y-%m-%d")
+                    except ValueError:
+                        raise PublishError("在营门店数日期不是有效营业日期。") from None
+                else:
+                    raise PublishError("区域行状态无效。")
         contents[f"assets/operations-data/{month}.json"] = (
             json.dumps(payload, ensure_ascii=False, allow_nan=False, indent=2) + "\n"
         ).encode("utf-8")
@@ -332,6 +368,7 @@ def publish_payloads(payloads: dict[str, dict[str, Any]], repo: Path, git: Git, 
 
 def self_test() -> int:
     """Meaningful synthetic regression checks; no external executables/network."""
+    from copy import deepcopy
     import unittest
     from unittest.mock import patch
 
@@ -372,6 +409,76 @@ def self_test() -> int:
             return ""
 
     class Tests(unittest.TestCase):
+        def test_legacy_all_five_field_rows_remain_accepted(self):
+            payloads = build_snapshots(fixture(), ALLOWED_MONTHS, now=clock)
+            for payload in payloads.values():
+                payload["source"].pop("operatingStoresMethod")
+                payload["source"].pop("operatingStoresDefinition")
+                for row in payload["rows"]:
+                    row.pop("operatingStores")
+                    row.pop("operatingStoresDate")
+            self.assertEqual(set(validate_payloads(payloads)), set(PATHS))
+        def test_current_rows_publish_cutoff_count_and_future_nulls(self):
+            payloads = build_snapshots(fixture(), ALLOWED_MONTHS, now=clock)
+            result = validate_payloads(payloads)
+            september = json.loads(result[PATHS[0]])
+            for row in september["rows"]:
+                self.assertEqual(row["storeDays"], 30)
+                self.assertEqual(row["operatingStores"], 1)
+                self.assertEqual(row["operatingStoresDate"], "2026-09-30")
+            november = json.loads(result[PATHS[2]])
+            self.assertTrue(all(row["operatingStores"] is None and row["operatingStoresDate"] is None
+                                for row in november["rows"]))
+        def test_unsafe_operating_store_counts_are_rejected_before_git(self):
+            for value in (-1, 1.5, True, 2**53, "1", None, 31):
+                payloads = build_snapshots(fixture(), ALLOWED_MONTHS, now=clock)
+                payloads["2026-09"]["rows"][0]["operatingStores"] = value
+                git = FakeGit()
+                with self.subTest(value=value), tempfile.TemporaryDirectory() as directory:
+                    with self.assertRaises(PublishError):
+                        publish_payloads(payloads, Path(directory) / "site", git,
+                                         author_name="Synthetic", author_email="synthetic@example.invalid", now=clock)
+                    self.assertEqual(git.calls, [])
+        def test_cutoff_store_date_must_be_valid_and_match_period_end(self):
+            for value in ("2026-09-29", "2026-10-09", "20260930", None):
+                payloads = build_snapshots(fixture(), ALLOWED_MONTHS, now=clock)
+                payloads["2026-09"]["rows"][0]["operatingStoresDate"] = value
+                with self.subTest(value=value), self.assertRaises(PublishError):
+                    validate_payloads(payloads)
+            payloads = build_snapshots(fixture(), ALLOWED_MONTHS, now=clock)
+            payloads["2026-09"]["end"] = "2026-09-31"
+            for row in payloads["2026-09"]["rows"]:
+                row["operatingStoresDate"] = "2026-09-31"
+            with self.assertRaises(PublishError):
+                validate_payloads(payloads)
+        def test_partial_region_or_month_upgrade_is_rejected(self):
+            original = build_snapshots(fixture(), ALLOWED_MONTHS, now=clock)
+            one_region = deepcopy(original)
+            one_region["2026-09"]["rows"][1].pop("operatingStores")
+            one_region["2026-09"]["rows"][1].pop("operatingStoresDate")
+            one_month = deepcopy(original)
+            for row in one_month["2026-09"]["rows"]:
+                row.pop("operatingStores")
+                row.pop("operatingStoresDate")
+            for payloads in (one_region, one_month):
+                with self.assertRaises(PublishError):
+                    validate_payloads(payloads)
+        def test_no_data_rows_reject_any_store_count_or_date(self):
+            for field, value in (("operatingStores", 0), ("operatingStoresDate", "2026-11-01")):
+                payloads = build_snapshots(fixture(), ALLOWED_MONTHS, now=clock)
+                payloads["2026-11"]["rows"][0][field] = value
+                with self.subTest(field=field), self.assertRaises(PublishError):
+                    validate_payloads(payloads)
+        def test_unapproved_store_method_or_row_fields_are_rejected(self):
+            for value in (None, "period-distinct-store-count", "cumulative-store-days"):
+                payloads = build_snapshots(fixture(), ALLOWED_MONTHS, now=clock)
+                payloads["2026-09"]["source"]["operatingStoresMethod"] = value
+                with self.subTest(value=value), self.assertRaises(PublishError):
+                    validate_payloads(payloads)
+            payloads = build_snapshots(fixture(), ALLOWED_MONTHS, now=clock)
+            payloads["2026-09"]["rows"][0]["storeName"] = "unapproved synthetic field"
+            with self.assertRaises(PublishError):
+                validate_payloads(payloads)
         def test_lock_file_survives_but_does_not_block_recovery(self):
             with tempfile.TemporaryDirectory() as directory:
                 repo = Path(directory) / "site"
