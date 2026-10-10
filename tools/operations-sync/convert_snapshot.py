@@ -110,6 +110,7 @@ def build_snapshots(raw: Any, expected_months: list[str] | tuple[str, ...], *,
         raise SnapshotError("期望月份须为 2026-09 至 2026-12 的不重复月份。")
 
     periods = {month: expected_period(month, now) for month in months}
+    current_month = now.astimezone(BUSINESS_ZONE).strftime("%Y-%m")
     grouped: dict[str, dict[date, dict[str, dict[str, Any]]]] = defaultdict(lambda: defaultdict(dict))
     queried_at_value: str | None = None
     query_instant: datetime | None = None
@@ -154,9 +155,10 @@ def build_snapshots(raw: Any, expected_months: list[str] | tuple[str, ...], *,
             "gmv": gmv, "storeDays": store_days, "sourceRows": source_rows,
         }
 
-    active_months = [month for month, (_, end) in periods.items() if end is not None]
-    if active_months and query_instant is None:
-        raise SnapshotError("已完成营业日的月份没有导出记录。")
+    historical_months = [month for month, (_, end) in periods.items()
+                         if end is not None and month < current_month]
+    if historical_months and query_instant is None:
+        raise SnapshotError("已完成历史月份没有导出记录。")
     if query_instant is not None:
         age = now - query_instant
         if age.total_seconds() < 0:
@@ -166,7 +168,11 @@ def build_snapshots(raw: Any, expected_months: list[str] | tuple[str, ...], *,
 
     payloads: dict[str, dict[str, Any]] = {}
     for month in months:
-        start, end = periods[month]
+        start, expected_end = periods[month]
+        # An early-morning query may legitimately precede the upstream load
+        # for yesterday. Only the current month may omit a trailing suffix;
+        # its actual cutoff comes from exported dates, never the query clock.
+        end = (max(grouped[month]) if grouped[month] else None) if month == current_month else expected_end
         no_data = end is None
         if no_data:
             rows = [{"region": region, "gmv": None, "storeDays": None,
@@ -209,12 +215,14 @@ def build_snapshots(raw: Any, expected_months: list[str] | tuple[str, ...], *,
                 source_rows_total[region] = total_source_rows
         payloads[month] = {
             "month": month, "start": start.isoformat(), "end": end.isoformat() if end else None,
-            "fetchedAt": queried_at_value if not no_data else None,
+            "fetchedAt": queried_at_value if expected_end is not None else None,
             "source": {
                 "label": "Navicat 查询导出快照 · 同步后刷新网页读取",
                 "mode": "snapshot", "queryStrategy": "full-period-requery",
                 "sourceRefreshedAt": None,
-                "completenessCheck": "all-completed-days-and-six-scopes",
+                "completenessCheck": "continuous-input-days-and-six-scopes; historical-months-through-month-end",
+                "expectedThrough": expected_end.isoformat() if expected_end else None,
+                "dataThrough": end.isoformat() if end else None,
                 "queryTimestampVerified": False,
                 "timestampNote": "保留 SQL queried_at；数据库时钟与 UTC+8 标注尚待现场核实，未以本地转换时间替代。",
                 "sourceRefreshNote": "输入未提供上游重算或更新时点；查询时间不能替代源更新时点。",

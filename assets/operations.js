@@ -101,7 +101,7 @@
         (!validDate(payload.end) || !payload.end.startsWith(requestedMonth) || payload.end < payload.start))) {
       throw new Error("快照的实际日期范围有误，请重新刷新。");
     }
-    if (payload.end !== null && (typeof payload.fetchedAt !== "string" ||
+    if ((payload.end !== null || payload.fetchedAt !== null) && (typeof payload.fetchedAt !== "string" ||
         !/(?:Z|[+-]\d{2}:\d{2})$/.test(payload.fetchedAt) || !Number.isFinite(Date.parse(payload.fetchedAt)))) {
       throw new Error("快照未提供有效的取数时间，请重新刷新。");
     }
@@ -143,8 +143,16 @@
     if (rows.length !== REGIONS.length || REGIONS.some((region) => !seen.has(region))) {
       throw new Error("全国及五区快照不完整，请重新刷新。");
     }
-    if (payload.end === null && (payload.fetchedAt !== null || rows.some((row) => row.status !== "NO_DATA"))) {
+    if (payload.end === null && ((payload.fetchedAt !== null && !payload.source.expectedThrough) || rows.some((row) => row.status !== "NO_DATA"))) {
       throw new Error("尚无实际期间的快照返回了营业数据，请重新刷新。");
+    }
+    if (Object.hasOwn(payload.source, "dataThrough") || Object.hasOwn(payload.source, "expectedThrough")) {
+      const expected = payload.source.expectedThrough;
+      if (payload.source.dataThrough !== payload.end || (expected !== null &&
+          (!validDate(expected) || !expected.startsWith(requestedMonth) || expected < payload.start)) ||
+          (payload.end !== null && (expected === null || payload.end > expected))) {
+        throw new Error("快照实际截止日与数据覆盖说明不一致，保留上次成功结果。");
+      }
     }
     return { ...payload, rows, targets: payload.targets && typeof payload.targets === "object" ? payload.targets : {} };
   }
@@ -358,10 +366,14 @@
     const selected = data.rows.find((row) => row.region === state.region);
     const incomplete = data.sourceComplete === false || data.sourceCompleteFalse === true || data.source?.complete === false;
     const target = targetFor(state.region);
+    const pendingDate = typeof data.source.expectedThrough === "string" && data.end && data.end < data.source.expectedThrough;
     if (data.end === null) {
-      setStatus("waiting", "仅显示目标", "本月尚无已完成营业日，实际值暂不显示。");
+      setStatus("waiting", "仅显示目标", data.source.expectedThrough
+        ? "本月实际数据尚未取得，目标正常显示。" : "本月尚无已完成营业日，实际值暂不显示。");
     } else if (!data.rows.length || !selected || selected.status === "NO_DATA") {
       setStatus("waiting", "本月暂无数据", "所选区域暂无实际营业数据，当前仅显示目标。");
+    } else if (pendingDate) {
+      setStatus("waiting", `最近同步 · 截至 ${data.end.slice(5).replace("-", "/")}`, `源数据暂截至 ${data.end.slice(5).replace("-", "/")}；后续营业日待数据库提供完整日记录。`);
     } else if (incomplete) {
       setStatus("waiting", "最近同步 · 原表查询", "数据来自原表查询；历史补录随下次成功同步更新。");
     } else if (selected.storeDays === 0) {

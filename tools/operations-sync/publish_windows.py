@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import argparse
 from contextlib import contextmanager
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 import base64
 import hashlib
 import json
@@ -28,7 +28,7 @@ from typing import Any
 from convert_snapshot import (
     ALLOWED_MONTHS, MAX_SAFE_INTEGER, OPERATING_STORES_METHOD,
     REGIONS, SnapshotError, aware_time, build_snapshots,
-    input_records, load_export, write_snapshots_atomic,
+    input_records, load_export, numeric, write_snapshots_atomic,
 )
 
 REMOTE_URL = "ssh://git@ssh.github.com:443/starbeef6/yanmingxing-asia.git"
@@ -229,6 +229,82 @@ def ensure_dedicated_repo(repo: Path, git: Git) -> None:
     (metadata / "operations-dashboard-empty-hooks").mkdir(exist_ok=True)
 
 
+def snapshot_period_end(payload: Any, month: str) -> date | None:
+    """Validate the metadata needed to compare a new period with a saved one.
+
+    Accept both approved row formats. A malformed prior file must stop a
+    publication rather than erase its history by treating it as a first run.
+    """
+    if (not isinstance(payload, dict) or set(payload) != TOP_FIELDS
+            or payload.get("month") != month or payload.get("start") != month + "-01"
+            or not isinstance(payload.get("source"), dict)
+            or payload["source"].get("mode") != "snapshot"
+            or payload.get("targets") != {} or payload.get("sourceComplete") is not False
+            or not isinstance(payload.get("rows"), list)
+            or any(not isinstance(row, dict) for row in payload["rows"])
+            or [row.get("region") for row in payload["rows"]] != list(REGIONS)):
+        raise PublishError("快照元数据或六个汇总范围无效；停止覆盖。")
+    end_value = payload["end"]
+    if end_value is None:
+        end = None
+    else:
+        if not isinstance(end_value, str) or not re.fullmatch(r"\d{4}-\d{2}-\d{2}", end_value):
+            raise PublishError("快照截止日期无效；停止覆盖。")
+        try:
+            end = date.fromisoformat(end_value)
+        except ValueError:
+            raise PublishError("快照截止日期无效；停止覆盖。") from None
+        if end_value[:7] != month:
+            raise PublishError("快照截止日期不属于对应月份；停止覆盖。")
+    row_schema = None
+    for row in payload["rows"]:
+        fields = set(row)
+        if fields not in (LEGACY_ROW_FIELDS, CURRENT_ROW_FIELDS) or (row_schema is not None and fields != row_schema):
+            raise PublishError("快照区域行字段无效；停止覆盖。")
+        row_schema = fields
+        if row["status"] == "NO_DATA":
+            if any(row[field] is not None for field in ("gmv", "storeDays", "storeAverage")):
+                raise PublishError("无数据区域含非空实际值；停止覆盖。")
+        elif row["status"] == "OK":
+            if (end is None or type(row["storeDays"]) is not int
+                    or not 0 <= row["storeDays"] <= MAX_SAFE_INTEGER):
+                raise PublishError("实际区域的截止日期或营业店天无效；停止覆盖。")
+            try:
+                numeric(row["gmv"], "已发布 gmv")
+                if row["storeAverage"] is None:
+                    if row["storeDays"] != 0:
+                        raise PublishError("已有营业店天缺少店日均；停止覆盖。")
+                else:
+                    numeric(row["storeAverage"], "已发布 storeAverage")
+            except SnapshotError:
+                raise PublishError("快照实际值不是有限数字；停止覆盖。") from None
+        else:
+            raise PublishError("快照区域状态无效；停止覆盖。")
+        if fields == CURRENT_ROW_FIELDS:
+            if payload["source"].get("operatingStoresMethod") != OPERATING_STORES_METHOD:
+                raise PublishError("快照在营门店数口径无效；停止覆盖。")
+            if row["status"] == "NO_DATA":
+                if row["operatingStores"] is not None or row["operatingStoresDate"] is not None:
+                    raise PublishError("无数据区域含在营门店数；停止覆盖。")
+            elif (type(row["operatingStores"]) is not int
+                    or not 0 <= row["operatingStores"] <= row["storeDays"]
+                    or row["operatingStoresDate"] != end_value):
+                raise PublishError("快照在营门店数或统计日期无效；停止覆盖。")
+    has_actual = any(row["status"] == "OK" for row in payload["rows"])
+    if payload["status"] != ("OK" if has_actual else "NO_DATA"):
+        raise PublishError("快照总状态与实际行不一致；停止覆盖。")
+    if payload["fetchedAt"] is not None:
+        try:
+            aware_time(payload["fetchedAt"], "已发布 fetchedAt")
+        except SnapshotError:
+            raise PublishError("快照查询时间格式无效；停止覆盖。") from None
+    elif has_actual:
+        raise PublishError("实际快照缺少查询时间；停止覆盖。")
+    if "dataThrough" in payload["source"] and payload["source"]["dataThrough"] != end_value:
+        raise PublishError("快照来源实际截止日与页面截止日不一致；停止覆盖。")
+    return end
+
+
 def validate_payloads(payloads: dict[str, dict[str, Any]]) -> dict[str, bytes]:
     if set(payloads) != set(ALLOWED_MONTHS):
         raise PublishError("必须一次发布九至十二月四份已验证快照。")
@@ -236,6 +312,7 @@ def validate_payloads(payloads: dict[str, dict[str, Any]]) -> dict[str, bytes]:
     batch_row_fields = None
     for month in ALLOWED_MONTHS:
         payload = payloads[month]
+        snapshot_period_end(payload, month)
         if (set(payload) != TOP_FIELDS or payload.get("month") != month
                 or payload.get("targets") != {} or payload.get("sourceComplete") is not False
                 or payload.get("source", {}).get("mode") != "snapshot"
@@ -291,6 +368,25 @@ def safe_destination(repo: Path, relative: str) -> Path:
     return destination
 
 
+def prevent_period_regression(payloads: dict[str, dict[str, Any]], repo: Path) -> None:
+    """Check every latest-main snapshot before any new monthly file is written."""
+    for month in ALLOWED_MONTHS:
+        previous_path = safe_destination(repo, f"assets/operations-data/{month}.json")
+        if not previous_path.exists():
+            continue
+        try:
+            previous = load_export(previous_path)
+            previous_end = snapshot_period_end(previous, month)
+        except (OSError, ValueError, TypeError, SnapshotError):
+            raise PublishError("已发布快照无法安全核验；停止覆盖全部月份。") from None
+        new_end = snapshot_period_end(payloads[month], month)
+        if previous_end is not None and (new_end is None or new_end < previous_end):
+            raise PublishError("本轮实际截止日早于已发布结果；保留上次成功数据。")
+        for old_row, new_row in zip(previous["rows"], payloads[month]["rows"]):
+            if old_row["status"] == "OK" and new_row["status"] != "OK":
+                raise PublishError("本轮无数据不能替代已发布区域实际；保留上次成功数据。")
+
+
 def publish_payloads(payloads: dict[str, dict[str, Any]], repo: Path, git: Git, *,
                      author_name: str, author_email: str, minimum_interval_minutes: int = 10,
                      now: datetime | None = None) -> tuple[str, str | None]:
@@ -332,6 +428,7 @@ def publish_payloads(payloads: dict[str, dict[str, Any]], repo: Path, git: Git, 
     if not re.fullmatch(r"[0-9a-f]{40}|[0-9a-f]{64}", latest):
         raise PublishError("最新远端提交格式无效。")
     git.run(repo, "reset", "--hard", latest)
+    prevent_period_regression(payloads, repo)
     for relative, body in contents.items():
         destination = safe_destination(repo, relative)
         destination.parent.mkdir(parents=True, exist_ok=True)
@@ -390,8 +487,9 @@ def self_test() -> int:
         return records
 
     class FakeGit:
-        def __init__(self, changed=True, fail_push=False, dirty=""):
+        def __init__(self, changed=True, fail_push=False, dirty="", on_reset=None):
             self.calls, self.changed, self.fail_push, self.dirty = [], changed, fail_push, dirty
+            self.on_reset = on_reset
         def run(self, repo, *args, **kwargs):
             self.calls.append(args)
             if args[:1] == ("init",):
@@ -404,11 +502,147 @@ def self_test() -> int:
                 return "a" * 40 if args[-1] != "HEAD" else "b" * 40
             if args[:1] == ("diff",):
                 return "\0".join(PATHS) + "\0" if self.changed else ""
+            if args[:1] == ("reset",) and self.on_reset is not None:
+                self.on_reset(repo)
             if args[:1] == ("push",) and self.fail_push:
                 raise PublishError("synthetic rejected push")
             return ""
 
     class Tests(unittest.TestCase):
+        def test_fresh_query_accepts_current_source_lag_with_actual_cutoff(self):
+            early_clock = datetime.fromisoformat("2026-10-10T18:08:00+00:00")
+            early_started = datetime.fromisoformat("2026-10-10T18:06:50+00:00")
+            for cutoff in ("2026-10-09", "2026-10-08"):
+                data = [row for row in fixture() if row["business_date"] <= cutoff]
+                for row in data:
+                    row["queried_at"] = "2026-10-10T18:06:58Z"
+                with self.subTest(cutoff=cutoff), tempfile.TemporaryDirectory() as directory:
+                    base = Path(directory)
+                    exported = base / "export.json"
+                    exported.write_text(json.dumps(data), encoding="utf-8")
+                    os.utime(exported, (early_clock.timestamp(), early_clock.timestamp()))
+                    payloads = fresh_payloads(exported, early_started, now=early_clock, max_age_minutes=60)
+                    self.assertEqual(payloads["2026-10"]["end"], cutoff)
+                    self.assertEqual(payloads["2026-10"]["source"]["expectedThrough"], "2026-10-10")
+                    result, _ = publish_payloads(payloads, base / "site", FakeGit(),
+                                                 author_name="Synthetic", author_email="synthetic@example.invalid",
+                                                 now=early_clock)
+                    self.assertEqual(result, "pushed")
+                    published = json.loads((base / "site" / PATHS[1]).read_text())
+                    self.assertEqual(published["end"], cutoff)
+                    self.assertEqual(published["rows"][0]["operatingStoresDate"], cutoff)
+        def test_latest_main_cutoff_regression_rejects_before_any_monthly_write(self):
+            latest = build_snapshots(fixture(), ALLOWED_MONTHS, now=clock)
+            incoming_data = [row for row in fixture() if row["business_date"] != "2026-10-09"]
+            incoming_data[0]["gmv"] = "999.25"  # Even this earlier month must remain untouched.
+            incoming = build_snapshots(incoming_data, ALLOWED_MONTHS, now=clock)
+            saved = {}
+            def reset_to_latest(repo):
+                for relative, body in validate_payloads(latest).items():
+                    target = repo / relative
+                    target.parent.mkdir(parents=True, exist_ok=True)
+                    target.write_bytes(body)
+                    saved[relative] = body
+            with tempfile.TemporaryDirectory() as directory:
+                repo = Path(directory) / "site"
+                git = FakeGit(on_reset=reset_to_latest)
+                with patch("os.replace", side_effect=AssertionError("must reject before writing snapshots")):
+                    with self.assertRaisesRegex(PublishError, "截止日"):
+                        publish_payloads(incoming, repo, git, author_name="Synthetic",
+                                         author_email="synthetic@example.invalid", now=clock)
+                self.assertEqual(saved, {relative: (repo / relative).read_bytes() for relative in PATHS})
+                self.assertFalse(any(call[0] in ("add", "push") or "commit" in call for call in git.calls))
+                self.assertTrue(any(call[0] == "fetch" for call in git.calls))
+                self.assertTrue(any(call[0] == "reset" for call in git.calls))
+        def test_current_no_data_cannot_replace_previously_published_actual(self):
+            latest = build_snapshots(fixture(), ALLOWED_MONTHS, now=clock)
+            absent_data = [row for row in fixture() if row["business_date"].startswith("2026-09")]
+            zero_source_data = fixture()
+            for row in zero_source_data:
+                row.update(gmv="0", store_days=0, source_rows=0)
+            for data in (absent_data, zero_source_data):
+                incoming = build_snapshots(data, ALLOWED_MONTHS, now=clock)
+                saved = {}
+                def reset_to_latest(repo):
+                    for relative, body in validate_payloads(latest).items():
+                        target = repo / relative
+                        target.parent.mkdir(parents=True, exist_ok=True)
+                        target.write_bytes(body)
+                        saved[relative] = body
+                with tempfile.TemporaryDirectory() as directory:
+                    repo, git = Path(directory) / "site", FakeGit(on_reset=reset_to_latest)
+                    with patch("os.replace", side_effect=AssertionError("must preserve published actual")):
+                        with self.assertRaises(PublishError):
+                            publish_payloads(incoming, repo, git, author_name="Synthetic",
+                                             author_email="synthetic@example.invalid", now=clock)
+                    self.assertEqual(saved, {relative: (repo / relative).read_bytes() for relative in PATHS})
+                    self.assertFalse(any(call[0] in ("add", "push") or "commit" in call for call in git.calls))
+        def test_malformed_prior_snapshot_stops_all_months_before_writing(self):
+            latest = build_snapshots(fixture(), ALLOWED_MONTHS, now=clock)
+            invalid_date = deepcopy(latest["2026-10"])
+            invalid_date["end"] = "2026-10-99"
+            missing_end = deepcopy(latest["2026-10"])
+            missing_end.pop("end")
+            invalid_row = deepcopy(latest["2026-10"])
+            invalid_row["rows"][0]["storeDays"] = -1
+            cases = (b"[", b"[]", json.dumps(missing_end).encode(),
+                     json.dumps(invalid_date).encode(), json.dumps(invalid_row).encode())
+            for corrupt in cases:
+                saved = {}
+                def reset_to_latest(repo):
+                    for relative, body in validate_payloads(latest).items():
+                        target = repo / relative
+                        target.parent.mkdir(parents=True, exist_ok=True)
+                        body = corrupt if relative == PATHS[1] else body
+                        target.write_bytes(body)
+                        saved[relative] = body
+                with self.subTest(corrupt=corrupt[:30]), tempfile.TemporaryDirectory() as directory:
+                    repo, git = Path(directory) / "site", FakeGit(on_reset=reset_to_latest)
+                    with patch("os.replace", side_effect=AssertionError("must reject malformed prior snapshot")):
+                        with self.assertRaises(PublishError):
+                            publish_payloads(latest, repo, git, author_name="Synthetic",
+                                             author_email="synthetic@example.invalid", now=clock)
+                    self.assertEqual(saved, {relative: (repo / relative).read_bytes() for relative in PATHS})
+                    self.assertFalse(any(call[0] in ("add", "push") or "commit" in call for call in git.calls))
+        def test_same_cutoff_backfill_can_replace_amount_and_keep_store_count(self):
+            previous = build_snapshots(fixture(), ALLOWED_MONTHS, now=clock)
+            updated_data = fixture()
+            updated_data[-54]["gmv"] = "20.25"  # October 1 nationwide, not its cutoff date.
+            incoming = build_snapshots(updated_data, ALLOWED_MONTHS, now=clock)
+            def reset_to_latest(repo):
+                for relative, body in validate_payloads(previous).items():
+                    target = repo / relative
+                    target.parent.mkdir(parents=True, exist_ok=True)
+                    target.write_bytes(body)
+            with tempfile.TemporaryDirectory() as directory:
+                repo = Path(directory) / "site"
+                result, _ = publish_payloads(incoming, repo, FakeGit(on_reset=reset_to_latest),
+                                             author_name="Synthetic", author_email="synthetic@example.invalid", now=clock)
+                self.assertEqual(result, "pushed")
+                updated = json.loads((repo / PATHS[1]).read_text())
+                self.assertEqual(updated["end"], previous["2026-10"]["end"])
+                self.assertEqual(updated["rows"][0]["gmv"], previous["2026-10"]["rows"][0]["gmv"] + 10)
+                self.assertEqual(updated["rows"][0]["operatingStores"], 1)
+        def test_prior_legacy_snapshot_allows_new_count_schema_upgrade(self):
+            previous = build_snapshots(fixture(), ALLOWED_MONTHS, now=clock)
+            for payload in previous.values():
+                for row in payload["rows"]:
+                    row.pop("operatingStores")
+                    row.pop("operatingStoresDate")
+                payload["source"].pop("operatingStoresMethod")
+                payload["source"].pop("operatingStoresDefinition")
+            def reset_to_latest(repo):
+                for relative, body in validate_payloads(previous).items():
+                    target = repo / relative
+                    target.parent.mkdir(parents=True, exist_ok=True)
+                    target.write_bytes(body)
+            with tempfile.TemporaryDirectory() as directory:
+                repo = Path(directory) / "site"
+                result, _ = publish_payloads(build_snapshots(fixture(), ALLOWED_MONTHS, now=clock), repo,
+                                             FakeGit(on_reset=reset_to_latest), author_name="Synthetic",
+                                             author_email="synthetic@example.invalid", now=clock)
+                self.assertEqual(result, "pushed")
+                self.assertEqual(json.loads((repo / PATHS[0]).read_text())["rows"][0]["operatingStores"], 1)
         def test_legacy_all_five_field_rows_remain_accepted(self):
             payloads = build_snapshots(fixture(), ALLOWED_MONTHS, now=clock)
             for payload in payloads.values():

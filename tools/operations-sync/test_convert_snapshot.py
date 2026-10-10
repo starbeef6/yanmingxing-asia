@@ -222,10 +222,54 @@ class ConversionTests(unittest.TestCase):
         with self.assertRaisesRegex(SnapshotError, "2026-09-30"):
             build_snapshots(rows, ALLOWED_MONTHS, now=NOW)
 
-    def test_missing_current_yesterday_is_rejected(self):
+    def test_current_month_missing_trailing_day_uses_export_cutoff(self):
         rows = [row for row in synthetic_rows() if row["business_date"] != "2026-10-09"]
-        with self.assertRaisesRegex(SnapshotError, "2026-10-09"):
-            build_snapshots(rows, ALLOWED_MONTHS, now=NOW)
+        set_amount(rows, "2026-10-08", "全国", "200", 2)
+        result = build_snapshots(rows, ALLOWED_MONTHS, now=NOW)["2026-10"]
+        self.assertEqual(result["end"], "2026-10-08")
+        self.assertEqual(result["source"]["expectedThrough"], "2026-10-09")
+        self.assertEqual(result["source"]["dataThrough"], "2026-10-08")
+        self.assertEqual(result["rows"][0]["operatingStoresDate"], "2026-10-08")
+        self.assertEqual(result["rows"][0]["operatingStores"], 2)
+
+    def test_fresh_early_morning_query_accepts_one_or_two_day_source_lag(self):
+        now = datetime.fromisoformat("2026-10-10T18:08:00+00:00")
+        query_time = "2026-10-10T18:06:58Z"
+        for cutoff in ("2026-10-09", "2026-10-08"):
+            rows = [row for row in synthetic_rows() if row["business_date"] <= cutoff]
+            for row in rows:
+                row["queried_at"] = query_time
+            set_amount(rows, cutoff, "全国", "250", 2)
+            result = build_snapshots(rows, ALLOWED_MONTHS, now=now)
+            with self.subTest(cutoff=cutoff):
+                october = result["2026-10"]
+                self.assertEqual(october["end"], cutoff)
+                self.assertEqual(october["source"]["expectedThrough"], "2026-10-10")
+                self.assertEqual(october["source"]["dataThrough"], cutoff)
+                self.assertEqual(october["fetchedAt"], query_time)
+                self.assertEqual(october["rows"][0]["gmv"], 250)
+                self.assertEqual(october["rows"][0]["operatingStoresDate"], cutoff)
+                self.assertEqual(result["2026-09"]["end"], "2026-09-30")
+
+    def test_current_month_missing_internal_date_or_scope_is_rejected(self):
+        no_internal_day = [row for row in synthetic_rows() if row["business_date"] != "2026-10-04"]
+        no_cutoff_scope = [row for row in synthetic_rows()
+                           if not (row["business_date"] == "2026-10-09" and row["region"] == "北区")]
+        for rows in (no_internal_day, no_cutoff_scope):
+            with self.assertRaises(SnapshotError):
+                build_snapshots(rows, ALLOWED_MONTHS, now=NOW)
+
+    def test_current_month_without_exported_dates_is_no_data_not_zero(self):
+        rows = [row for row in synthetic_rows() if row["business_date"].startswith("2026-09")]
+        result = build_snapshots(rows, ALLOWED_MONTHS, now=NOW)["2026-10"]
+        self.assertIsNone(result["end"])
+        self.assertEqual(result["source"]["expectedThrough"], "2026-10-09")
+        self.assertIsNone(result["source"]["dataThrough"])
+        self.assertEqual(result["status"], "NO_DATA")
+        self.assertEqual(result["fetchedAt"], QUERY_TIME)
+        self.assertTrue(all(row["gmv"] is None and row["storeAverage"] is None
+                            and row["operatingStores"] is None and row["operatingStoresDate"] is None
+                            for row in result["rows"]))
 
     def test_missing_scope_duplicate_unknown_and_mixed_month_are_rejected(self):
         original = synthetic_rows()
