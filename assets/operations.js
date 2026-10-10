@@ -21,7 +21,8 @@
   };
 
   function finite(value) {
-    if (value === null || value === undefined || value === "" || typeof value === "boolean") return null;
+    if (typeof value !== "number" && typeof value !== "string") return null;
+    if (typeof value === "string" && !/^[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?$/.test(value.trim())) return null;
     const parsed = Number(value);
     return Number.isFinite(parsed) ? parsed : null;
   }
@@ -41,15 +42,10 @@
     return value === null ? "—" : percentFormat.format(value * 100) + "%";
   }
 
-  function apiBase() {
-    const configured = typeof window.OPERATIONS_API_BASE === "string" ? window.OPERATIONS_API_BASE.trim() : "";
-    if (!configured) return null;
-    const parsed = new URL(configured);
-    const local = parsed.hostname === "localhost" || parsed.hostname === "127.0.0.1";
-    if (parsed.username || parsed.password || parsed.search || parsed.hash || (parsed.protocol !== "https:" && !(local && parsed.protocol === "http:"))) {
-      throw new Error("数据服务地址配置有误。");
-    }
-    return parsed.href.replace(/\/$/, "");
+  function snapshotUrl(month, requestId) {
+    const url = new URL(`../assets/operations-data/${month}.json`, window.location.href);
+    url.searchParams.set("refresh", `${Date.now()}-${requestId}`);
+    return url.href;
   }
 
   function saveSelection() {
@@ -91,23 +87,47 @@
     if (!payload || typeof payload !== "object" || payload.month !== requestedMonth || !Array.isArray(payload.rows)) {
       throw new Error("返回的数据月份或格式有误，请重新刷新。");
     }
+    if (typeof payload.sourceComplete !== "boolean" || !payload.source || typeof payload.source !== "object" || payload.source.mode !== "snapshot" ||
+        payload.source.queryStrategy !== "full-period-requery" || /dws_data_merge/i.test(JSON.stringify(payload.source))) {
+      throw new Error("本次数据不是已配置的完整历史重查快照，保留上次成功结果。");
+    }
+    const validDate = (value) => typeof value === "string" && /^\d{4}-\d{2}-\d{2}$/.test(value) &&
+      Number.isFinite(Date.parse(value)) && new Date(value).toISOString().slice(0, 10) === value;
+    if (payload.start !== `${requestedMonth}-01` || (payload.end !== null &&
+        (!validDate(payload.end) || !payload.end.startsWith(requestedMonth) || payload.end < payload.start))) {
+      throw new Error("快照的实际日期范围有误，请重新刷新。");
+    }
+    if (payload.end !== null && (typeof payload.fetchedAt !== "string" ||
+        !/(?:Z|[+-]\d{2}:\d{2})$/.test(payload.fetchedAt) || !Number.isFinite(Date.parse(payload.fetchedAt)))) {
+      throw new Error("快照未提供有效的取数时间，请重新刷新。");
+    }
     const seen = new Set();
     const rows = payload.rows.map((row) => {
       if (!row || !REGIONS.includes(row.region) || seen.has(row.region)) throw new Error("返回的区域数据有误，请重新刷新。");
       seen.add(row.region);
       const gmv = finite(row.gmv);
       const storeDays = finite(row.storeDays);
-      const storeAverage = finite(row.storeAverage ?? row.storeDayAverage);
+      const storeAverage = finite(row.storeAverage);
       if (row.status === "NO_DATA") {
         if (gmv !== null || storeDays !== null || storeAverage !== null) throw new Error("暂无数据的区域返回了不一致的指标，请重新刷新。");
         return { region: row.region, gmv: null, storeDays: null, storeAverage: null, status: "NO_DATA" };
       }
-      if (gmv === null || storeDays === null || storeDays < 0 || !Number.isInteger(storeDays) || (storeDays > 0 && storeAverage === null)) {
+      if (row.status !== "OK" || gmv === null || storeDays === null || storeDays < 0 || !Number.isSafeInteger(storeDays) ||
+          (storeDays > 0 && storeAverage === null) || (storeDays === 0 && storeAverage !== null)) {
         throw new Error("经营指标缺失或格式有误，请重新刷新。");
       }
-      return { region: row.region, gmv, storeDays, storeAverage: storeDays > 0 ? storeAverage : null, status: row.status || "OK" };
+      const calculatedAverage = storeDays > 0 ? gmv / storeDays : null;
+      if (calculatedAverage !== null && Math.abs(calculatedAverage - storeAverage) > Math.max(1, Math.abs(calculatedAverage)) * 1e-9) {
+        throw new Error("店日均与营业额、营业店天不一致，保留上次成功结果。");
+      }
+      return { region: row.region, gmv, storeDays, storeAverage: calculatedAverage, status: "OK" };
     });
-    if (rows.length && !seen.has("全国")) throw new Error("全国汇总尚未返回，请重新刷新。");
+    if (rows.length !== REGIONS.length || REGIONS.some((region) => !seen.has(region))) {
+      throw new Error("全国及五区快照不完整，请重新刷新。");
+    }
+    if (payload.end === null && (payload.fetchedAt !== null || rows.some((row) => row.status !== "NO_DATA"))) {
+      throw new Error("尚无实际期间的快照返回了营业数据，请重新刷新。");
+    }
     return { ...payload, rows, targets: payload.targets && typeof payload.targets === "object" ? payload.targets : {} };
   }
 
@@ -199,29 +219,29 @@
     $("dashboard").setAttribute("aria-busy", String(state.loading));
     $("refresh").disabled = state.loading;
     $("refresh").setAttribute("aria-busy", String(state.loading));
-    $("refresh-label").textContent = state.loading ? "正在查询" : "刷新数据";
+    $("refresh-label").textContent = state.loading ? "正在刷新" : "刷新看板";
   }
 
   function successStatus(data) {
     const selected = data.rows.find((row) => row.region === state.region);
     const incomplete = data.sourceComplete === false || data.sourceCompleteFalse === true || data.source?.complete === false;
     const target = targetFor(state.region);
-    if (!data.rows.length || !selected || selected.status === "NO_DATA") {
-      setStatus("waiting", "本月暂无数据", "所选月份或区域暂无营业数据，请稍后刷新。");
+    if (data.end === null) {
+      setStatus("waiting", "仅显示目标", "本月尚无已完成营业日，实际值暂不显示。");
+    } else if (!data.rows.length || !selected || selected.status === "NO_DATA") {
+      setStatus("waiting", "本月暂无数据", "所选区域暂无实际营业数据，当前仅显示目标。");
     } else if (incomplete) {
       const warning = typeof data.dataQualityWarning === "string" && data.dataQualityWarning.trim() ? data.dataQualityWarning : "当前来源的历史补录覆盖尚未核验。";
-      setStatus("waiting", "已查询 · 现有数据", warning);
+      setStatus("waiting", "最近同步 · 待核验", warning);
     } else if (selected.storeDays === 0) {
-      setStatus("ready", "已连接 · 本月查询结果", "所选区域暂无正营业额记录，店日均暂不计算。");
+      setStatus("ready", "最近同步 · 本月数据", "所选区域暂无正营业额记录，店日均暂不计算。");
     } else if (finite(target.gmv) === null || finite(target.storeAverage) === null) {
-      setStatus("ready", "已连接 · 本月查询结果", "实际数据已更新，本月所选档位的目标尚未配置。");
-    } else if (data.sourceComplete === true) {
-      setStatus("ready", "已连接 · 本月查询结果", "刷新时重新查询当前数据源，历史补录覆盖以源表为准。");
+      setStatus("ready", "最近同步 · 本月数据", "实际数据已更新，本月所选档位的目标尚未配置。");
     } else {
-      setStatus("ready", "已连接 · 本月查询结果", "本月经营指标已更新，刷新时重新查询数据库。");
+      setStatus("ready", "最近同步 · 本月数据", "已读取最近成功同步的结果；历史补录随下次同步更新。");
     }
     const source = typeof data.source === "string" ? data.source : data.source?.description || data.source?.label || "";
-    $("source-note").textContent = source || "GMV 为总营业额；店日均为 GMV ÷ 有正营业额的营业店天。";
+    $("source-note").textContent = `${source || "GMV 为总营业额；店日均按营业店天计算。"} 刷新读取最近发布的结果。`;
   }
 
   async function refresh() {
@@ -230,36 +250,17 @@
     const controller = new AbortController();
     state.controller = controller;
     const requestedMonth = state.month;
-    let base;
-    try { base = apiBase(); } catch (error) {
-      state.loading = false;
-      state.failure = error.message;
-      setStatus("error", "数据服务配置有误", error.message);
-      render();
-      return;
-    }
-    if (!base) {
-      state.loading = false;
-      state.failure = "数据服务尚未配置";
-      setStatus("waiting", "等待数据服务", "数据服务尚未配置，暂时无法读取数据库。");
-      render();
-      return;
-    }
     state.loading = true;
     state.failure = null;
-    setStatus("loading", "正在查询数据库", state.data ? "正在重新查询；完成后更新本月结果。" : "正在读取所选月份的数据…");
+    setStatus("loading", "正在读取最新同步", state.data ? "正在刷新最近同步的本月结果…" : "正在读取所选月份的数据…");
     render();
-    const timeout = setTimeout(() => controller.abort(), 80000);
+    const timeout = setTimeout(() => controller.abort(), 30000);
     try {
-      const response = await fetch(`${base}/api/dashboard?month=${encodeURIComponent(requestedMonth)}`, {
-        method: "GET", cache: "no-store", credentials: "omit", headers: { Accept: "application/json" }, signal: controller.signal,
+      const response = await fetch(snapshotUrl(requestedMonth, requestId), {
+        method: "GET", cache: "no-store", credentials: "same-origin", headers: { Accept: "application/json" }, signal: controller.signal,
       });
       if (!response.ok) {
-        let reason = null;
-        try { reason = await response.json(); } catch (_) { /* A gateway failure can return HTML. */ }
-        const code = reason?.code || reason?.error?.code || (typeof reason?.error === "string" ? reason.error : null);
-        const labels = { SOURCE_UNAVAILABLE: "经营数据来源暂不可读。", DATABASE_NOT_CONFIGURED: "数据库尚未配置。", SOURCE_NOT_READY: "完整数据来源尚未就绪。", DB_UNAVAILABLE: "数据库暂时无法连接。", CONNECTION_REQUIRED: "查询服务尚未连接数据库，请由维护人员在本机重新连接。", QUERY_UNAVAILABLE: "查询服务暂时不可用，请稍后刷新。", INVALID_QUERY_RESULT: "本次查询结果未通过核验，请稍后刷新。", NO_DATA: "本月暂无营业数据。" };
-        throw new Error(labels[code] || (response.status === 429 ? "查询较多，请稍后再刷新。" : "本次数据库查询未完成，请稍后刷新。"));
+        throw new Error(response.status === 404 ? "本月同步文件尚未就绪，请稍后刷新。" : "本次同步结果暂时无法读取，请稍后刷新。");
       }
       const payload = validateData(await response.json(), requestedMonth);
       if (requestId !== state.requestId || requestedMonth !== state.month) return;
@@ -269,7 +270,7 @@
       successStatus(payload);
     } catch (error) {
       if (requestId !== state.requestId || requestedMonth !== state.month) return;
-      const reason = error.name === "AbortError" ? "本次查询超时，请重新刷新。" : error.message || "本次查询未完成，请重新刷新。";
+      const reason = error.name === "AbortError" ? "本次读取超时，请重新刷新。" : error.message || "本次读取未完成，请重新刷新。";
       state.failure = reason;
       const retained = state.data?.month === requestedMonth;
       setStatus("error", retained ? "刷新未完成 · 保留上次结果" : "数据暂不可用", reason + (retained ? " 当前仍显示上次成功取数结果。" : " 当前未显示实际值。"));
@@ -286,7 +287,7 @@
     if (!MONTHS.includes(event.target.value)) return;
     state.month = event.target.value;
     state.data = null;
-    $("source-note").textContent = "数据来自数据库，刷新时重新查询所选月份。";
+    $("source-note").textContent = "刷新读取最近发布的结果，取数时间见右上方。";
     saveSelection();
     refresh();
   });

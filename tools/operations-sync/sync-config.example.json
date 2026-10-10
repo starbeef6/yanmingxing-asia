@@ -1,0 +1,11 @@
+{
+  "export_path": "C:\\Users\\1\\Desktop\\ODDaily20261010A.json",
+  "git_path": "C:\\Users\\1\\Documents\\OperationsDashboard-20261010\\PortableGit\\cmd\\git.exe",
+  "ssh_path": "C:\\Users\\1\\Documents\\OperationsDashboard-20261010\\PortableGit\\usr\\bin\\ssh.exe",
+  "key_file": "C:\\Users\\1\\Documents\\OperationsDashboard-20261010\\keys\\website_ed25519",
+  "known_hosts_file": "C:\\Users\\1\\Documents\\OperationsDashboard-20261010\\keys\\github_known_hosts",
+  "repo_dir": "C:\\Users\\1\\Documents\\OperationsDashboard-20261010\\publish-repo",
+  "snapshot_dir": "C:\\Users\\1\\Documents\\OperationsDashboard-20261010\\snapshots",
+  "author_name": "Operations Dashboard",
+  "author_email": "199452171+starbeef6@users.noreply.github.com"
+}

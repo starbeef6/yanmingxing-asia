@@ -22,7 +22,7 @@
         <p class="scope" id="scope">全国 · 2026 年 10 月 · 平衡目标</p>
       </div>
       <div class="refresh-state">
-        <p class="status-badge" id="status-badge" data-state="waiting"><span class="status-dot" aria-hidden="true"></span><span id="status-text">等待数据服务</span></p>
+        <p class="status-badge" id="status-badge" data-state="waiting"><span class="status-dot" aria-hidden="true"></span><span id="status-text">等待同步数据</span></p>
         <p class="timestamp" id="timestamp">尚未取数</p>
       </div>
     </header>
@@ -51,10 +51,10 @@
           <label><input type="radio" name="tier" value="冲刺"><span>冲刺</span></label>
         </fieldset>
       </div>
-      <button class="refresh-button" id="refresh" type="button"><span class="refresh-icon" aria-hidden="true">↻</span><span id="refresh-label">刷新数据</span></button>
+      <button class="refresh-button" id="refresh" type="button"><span class="refresh-icon" aria-hidden="true">↻</span><span id="refresh-label">刷新看板</span></button>
     </section>
 
-    <p class="notice" id="notice" role="status" aria-live="polite">数据服务尚未配置，暂时无法读取数据库。</p>
+    <p class="notice" id="notice" role="status" aria-live="polite">正在读取最近成功同步的经营数据。</p>
 
     <section class="metric-grid" aria-label="核心经营指标">
       <article class="metric-card metric-gmv">
@@ -92,10 +92,9 @@
         </table>
       </div>
     </section>
-    <footer class="page-footer"><p id="source-note">数据来自数据库，刷新时重新查询所选月份。</p><p>2026 · 经营观察</p></footer>
-    <noscript><p class="notice">请启用浏览器 JavaScript，以加载数据库中的经营指标。</p></noscript>
+    <footer class="page-footer"><p id="source-note">刷新读取最近发布的结果，取数时间见右上方。</p><p>2026 · 经营观察</p></footer>
+    <noscript><p class="notice">请启用浏览器 JavaScript，以加载最近同步的经营指标。</p></noscript>
   </main>
-  <script>window.OPERATIONS_API_BASE = "https://magnetic-happen-mae-convert.trycloudflare.com";</script>
   <script src="../assets/operations.js" defer></script>
 </body>
 </html>
