@@ -231,8 +231,7 @@
     } else if (!data.rows.length || !selected || selected.status === "NO_DATA") {
       setStatus("waiting", "本月暂无数据", "所选区域暂无实际营业数据，当前仅显示目标。");
     } else if (incomplete) {
-      const warning = typeof data.dataQualityWarning === "string" && data.dataQualityWarning.trim() ? data.dataQualityWarning : "当前来源的历史补录覆盖尚未核验。";
-      setStatus("waiting", "最近同步 · 待核验", warning);
+      setStatus("waiting", "最近同步 · 原表查询", "数据来自原表查询；历史补录随下次成功同步更新。");
     } else if (selected.storeDays === 0) {
       setStatus("ready", "最近同步 · 本月数据", "所选区域暂无正营业额记录，店日均暂不计算。");
     } else if (finite(target.gmv) === null || finite(target.storeAverage) === null) {
@@ -241,7 +240,9 @@
       setStatus("ready", "最近同步 · 本月数据", "已读取最近成功同步的结果；历史补录随下次同步更新。");
     }
     const source = typeof data.source === "string" ? data.source : data.source?.description || data.source?.label || "";
-    $("source-note").textContent = `${source || "GMV 为总营业额；店日均按营业店天计算。"} 刷新读取最近发布的结果。`;
+    $("source-note").textContent = incomplete
+      ? "刷新读取最近发布的结果；上游重算更新时间未提供。"
+      : `${source || "GMV 为总营业额；店日均按营业店天计算。"} 刷新读取最近发布的结果。`;
   }
 
   async function refresh() {
