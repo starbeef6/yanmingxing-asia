@@ -18,6 +18,10 @@
     requestId: 0,
     controller: null,
     failure: null,
+    history: null,
+    historyRequestId: 0,
+    historyLoading: false,
+    historyFailure: null,
   };
 
   function finite(value) {
@@ -171,6 +175,70 @@
     }
   }
 
+  async function loadHistoryReference() {
+    const requestId = ++state.historyRequestId;
+    state.historyLoading = true;
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 10000);
+    try {
+      if (!window.OperationsForecast) throw new Error("历史预计计算暂不可用。");
+      const url = new URL("../assets/operations-history-2025.json", window.location.href);
+      url.searchParams.set("refresh", `${Date.now()}-${requestId}`);
+      const response = await fetch(url.href, { cache: "no-store", headers: { Accept: "application/json" }, signal: controller.signal });
+      if (!response.ok) throw new Error("历史参考暂时无法读取。");
+      const history = window.OperationsForecast.validateHistory(await response.json());
+      if (requestId !== state.historyRequestId) return;
+      state.history = history;
+      state.historyFailure = null;
+    } catch (_) {
+      if (requestId !== state.historyRequestId) return;
+      state.historyFailure = state.history ? "历史参考刷新未完成，沿用已加载的固定占比。" : "历史参考暂不可用，实际指标正常显示。";
+    } finally {
+      clearTimeout(timeout);
+      if (requestId === state.historyRequestId) {
+        state.historyLoading = false;
+        render();
+      }
+    }
+  }
+
+  function forecastFor(region, data) {
+    if (!window.OperationsForecast || !state.history) return { available: false };
+    return window.OperationsForecast.calculate(data, state.history, region, targetFor(region));
+  }
+
+  function gapDisplay(forecast) {
+    const gap = finite(forecast?.gap);
+    if (gap === null) return { label: "预计缺口", value: "—", kind: "waiting" };
+    if (Math.abs(gap) < 0.005) return { label: "距目标", value: "持平", kind: "even" };
+    return { label: gap > 0 ? "预计缺口" : "预计超额", value: number(Math.abs(gap), 10000, " 万元"), kind: gap > 0 ? "shortfall" : "surplus" };
+  }
+
+  function renderForecast(data) {
+    const supportedMonth = ["10", "11", "12"].includes(state.month.slice(-2));
+    $("forecast-summary").hidden = !supportedMonth;
+    const forecast = forecastFor(state.region, data);
+    const gap = gapDisplay(forecast);
+    $("forecast-value").textContent = forecast.available ? number(forecast.gmv, 10000) : "—";
+    $("forecast-rate").textContent = forecast.available ? percent(forecast.attainment) : "—";
+    $("forecast-gap-label").textContent = gap.label;
+    $("forecast-gap").textContent = forecast.available ? gap.value : "—";
+    $("forecast-gap").dataset.kind = gap.kind;
+    $("forecast-share-fact").hidden = state.region === "全国" || !forecast.available;
+    $("forecast-share").textContent = percent(forecast.share ?? null);
+    let note = "按 2025 年同月同日走势估算；历史口径尚待核对。";
+    if (!data || data.end === null) note = "本月尚无累计实际数据，暂不估算。";
+    else if (!state.history) note = state.historyLoading ? "正在读取历史参考，实际指标正常显示。" : state.historyFailure || "历史参考暂不可用，实际指标正常显示。";
+    else if (!forecast.available) note = "当前累计实际或历史参考不完整，暂不估算。";
+    else {
+      const historicalDate = forecast.historicalDate?.slice(5).replace("-", "/");
+      note = state.region === "全国" ? `按 2025 年 ${historicalDate} 各区进度分别估算后汇总；历史口径尚待核对。` : `按 2025 年 ${historicalDate} 累计占比估算；历史口径尚待核对。`;
+      if (state.historyFailure) note += ` ${state.historyFailure}`;
+    }
+    $("forecast-note").textContent = note;
+    return forecast.available;
+  }
+
   function progress(id, value) {
     $(id).style.width = value === null ? "0%" : `${Math.max(0, Math.min(100, value * 100))}%`;
   }
@@ -197,6 +265,21 @@
     progress("gmv-progress", gmvRatio);
     progress("average-progress", averageRatio);
 
+    const forecastsAvailable = renderForecast(data) && REGIONS.slice(1).every((region) => forecastFor(region, data).available);
+    const header = document.createElement("tr");
+    const headers = forecastsAvailable
+      ? ["区域", "实际 GMV（万元）", "店日均（元）", "参考预计全月（万元）", "预计达成", "预计缺口 / 超额（万元）"]
+      : ["区域", "GMV（万元）", "占全月目标", "店日均（元）", "店日均达成"];
+    headers.forEach((label) => {
+      const th = document.createElement("th");
+      th.scope = "col";
+      th.textContent = label;
+      header.appendChild(th);
+    });
+    $("region-head").replaceChildren(header);
+    $("region-head").closest("table").dataset.forecast = String(forecastsAvailable);
+    $("forecast-table-hint").hidden = !forecastsAvailable;
+
     const ordered = REGIONS.slice(1).map((region) => rows.find((row) => row.region === region) || { region, gmv: null, storeAverage: null });
     if (rows.length) ordered.sort((a, b) => (b.gmv ?? -Infinity) - (a.gmv ?? -Infinity));
     const fragment = document.createDocumentFragment();
@@ -208,9 +291,15 @@
       heading.scope = "row";
       heading.textContent = row.region;
       tr.appendChild(heading);
-      [number(row.gmv, 10000), percent(ratio(row.gmv, regionTarget.gmv)), number(row.storeAverage), percent(ratio(row.storeAverage, regionTarget.storeAverage))].forEach((value) => {
+      const forecast = forecastFor(row.region, data);
+      const gap = finite(forecast.gap);
+      const values = forecastsAvailable
+        ? [number(row.gmv, 10000), number(row.storeAverage), number(forecast.gmv, 10000), percent(forecast.attainment), gap === null ? "—" : Math.abs(gap) < 0.005 ? "持平" : `${gap > 0 ? "缺口" : "超额"} ${number(Math.abs(gap), 10000)}`]
+        : [number(row.gmv, 10000), percent(ratio(row.gmv, regionTarget.gmv)), number(row.storeAverage), percent(ratio(row.storeAverage, regionTarget.storeAverage))];
+      values.forEach((value, index) => {
         const td = document.createElement("td");
         td.textContent = value;
+        if (forecastsAvailable && index === 4 && gap !== null) td.dataset.kind = gap > 0 ? "shortfall" : "surplus";
         tr.appendChild(td);
       });
       fragment.appendChild(tr);
@@ -246,6 +335,7 @@
   }
 
   async function refresh() {
+    loadHistoryReference();
     const requestId = ++state.requestId;
     state.controller?.abort();
     const controller = new AbortController();
