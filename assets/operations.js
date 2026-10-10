@@ -165,7 +165,7 @@
     document.querySelectorAll('input[name="tier"]').forEach((input) => { input.checked = input.value === state.tier; });
     $("scope").textContent = `${state.region} · ${period(data)} · ${state.tier}目标`;
     $("comparison-period").textContent = `${Number(state.month.slice(-2))} 月 · ${state.tier}目标`;
-    $("timestamp").textContent = data ? `取数：${timestamp(data.fetchedAt)}` : "尚未取数";
+    $("timestamp").textContent = data?.fetchedAt ? `取数：${timestamp(data.fetchedAt)}` : "尚未取数";
     $("gmv-value").textContent = number(selected?.gmv, 10000);
     $("average-value").textContent = number(selected?.storeAverage);
     $("gmv-target").textContent = number(target.gmv, 10000, " 万元");
