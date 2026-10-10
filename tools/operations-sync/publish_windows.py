@@ -270,8 +270,21 @@ def publish_payloads(payloads: dict[str, dict[str, Any]], repo: Path, git: Git, 
     if state_path.exists():
         state = json.loads(state_path.read_text(encoding="utf-8"))
         previous = aware_time(state.get("pushedAt"), "上次推送时间")
-        if now - previous < timedelta(minutes=minimum_interval_minutes):
-            raise PublishError("距上次成功推送不足十分钟；本轮不触发重复构建。")
+        if previous > now:
+            raise PublishError("上次推送时间晚于当前时间；停止发布。")
+        interval_deadline = previous + timedelta(minutes=minimum_interval_minutes)
+        remaining_seconds = (interval_deadline - now).total_seconds()
+        if remaining_seconds > 0:
+            # Ten-minute task starts may precede ten minutes since the previous
+            # push finished by a few seconds. Keep the existing publication
+            # lock and wait only for this bounded scheduling alignment.
+            # Explicit test clocks retain immediate rejection, never sleeping.
+            if fixed_test_clock or remaining_seconds > 60:
+                raise PublishError("距上次成功推送不足规定间隔；本轮不触发重复构建。")
+            time.sleep(remaining_seconds)
+            now = datetime.now(timezone.utc)
+            if now < interval_deadline:
+                raise PublishError("等待后仍未达到规定推送间隔；停止发布。")
     # Only previous failed writes of these four paths may be discarded. Never
     # clean/reset a workspace with other changed or untracked files.
     dirty = git.run(repo, "status", "--porcelain=v1", "--untracked-files=all", "-z")
@@ -504,6 +517,77 @@ def self_test() -> int:
                     publish_payloads(build_snapshots(fixture(), ALLOWED_MONTHS, now=clock), repo, git,
                                      author_name="Synthetic", author_email="synthetic@example.invalid", now=clock)
                 self.assertEqual(state.read_text(), old)
+        def test_real_clock_short_schedule_gap_waits_then_publishes(self):
+            from datetime import datetime as ActualDatetime
+            for missing_seconds in (14, 60):
+                with self.subTest(missing_seconds=missing_seconds), tempfile.TemporaryDirectory() as directory:
+                    repo, git = Path(directory) / "site", FakeGit()
+                    ensure_dedicated_repo(repo, git)
+                    previous = clock - timedelta(minutes=10) + timedelta(seconds=missing_seconds)
+                    state = repo / ".git" / PUBLISH_STATE
+                    state.write_text(json.dumps({"pushedAt": previous.isoformat(), "commit": "c" * 40}))
+                    current = [clock]
+                    class MovingDatetime(ActualDatetime):
+                        @classmethod
+                        def now(cls, tz=None):
+                            return current[0] if tz is not None else current[0].replace(tzinfo=None)
+                    def pause(seconds):
+                        self.assertEqual(seconds, missing_seconds)
+                        current[0] += timedelta(seconds=seconds)
+                    payloads = build_snapshots(fixture(), ALLOWED_MONTHS, now=clock)
+                    with patch(__name__ + ".datetime", MovingDatetime), patch("time.sleep", side_effect=pause) as sleeper:
+                        result, commit = publish_payloads(payloads, repo, git, author_name="Synthetic",
+                                                          author_email="synthetic@example.invalid")
+                    self.assertEqual((result, commit), ("pushed", "b" * 40))
+                    sleeper.assert_called_once_with(missing_seconds)
+                    recorded = aware_time(json.loads(state.read_text())["pushedAt"], "pushedAt")
+                    self.assertGreaterEqual(recorded - previous, timedelta(minutes=10))
+        def test_real_clock_early_or_future_state_rejects_without_sleeping(self):
+            from datetime import datetime as ActualDatetime
+            class FixedDatetime(ActualDatetime):
+                @classmethod
+                def now(cls, tz=None):
+                    return clock if tz is not None else clock.replace(tzinfo=None)
+            for previous in (clock - timedelta(minutes=9) + timedelta(seconds=1),
+                             clock + timedelta(seconds=1), clock + timedelta(days=1)):
+                with self.subTest(previous=previous), tempfile.TemporaryDirectory() as directory:
+                    repo, git = Path(directory) / "site", FakeGit()
+                    ensure_dedicated_repo(repo, git)
+                    state = repo / ".git" / PUBLISH_STATE
+                    old = json.dumps({"pushedAt": previous.isoformat(), "commit": "c" * 40})
+                    state.write_text(old)
+                    with patch(__name__ + ".datetime", FixedDatetime), patch("time.sleep") as sleeper:
+                        with self.assertRaises(PublishError):
+                            publish_payloads(build_snapshots(fixture(), ALLOWED_MONTHS, now=clock), repo, git,
+                                             author_name="Synthetic", author_email="synthetic@example.invalid")
+                    sleeper.assert_not_called()
+                    self.assertEqual(state.read_text(), old)
+                    self.assertFalse(any(call[0] in ("fetch", "reset", "push") for call in git.calls))
+        def test_fixed_test_clock_or_unadvanced_real_clock_cannot_bypass_interval(self):
+            from datetime import datetime as ActualDatetime
+            class FixedDatetime(ActualDatetime):
+                @classmethod
+                def now(cls, tz=None):
+                    return clock if tz is not None else clock.replace(tzinfo=None)
+            for explicit_clock in (True, False):
+                with self.subTest(explicit_clock=explicit_clock), tempfile.TemporaryDirectory() as directory:
+                    repo, git = Path(directory) / "site", FakeGit()
+                    ensure_dedicated_repo(repo, git)
+                    state = repo / ".git" / PUBLISH_STATE
+                    old = json.dumps({"pushedAt": (clock - timedelta(minutes=10) + timedelta(seconds=14)).isoformat(),
+                                      "commit": "c" * 40})
+                    state.write_text(old)
+                    with patch(__name__ + ".datetime", FixedDatetime), patch("time.sleep") as sleeper:
+                        with self.assertRaises(PublishError):
+                            publish_payloads(build_snapshots(fixture(), ALLOWED_MONTHS, now=clock), repo, git,
+                                             author_name="Synthetic", author_email="synthetic@example.invalid",
+                                             now=clock if explicit_clock else None)
+                    if explicit_clock:
+                        sleeper.assert_not_called()
+                    else:
+                        sleeper.assert_called_once_with(14)
+                    self.assertEqual(state.read_text(), old)
+                    self.assertFalse(any(call[0] in ("fetch", "reset", "push") for call in git.calls))
         def test_unowned_directory_and_unrelated_edits_are_not_reset(self):
             with tempfile.TemporaryDirectory() as directory:
                 repo = Path(directory) / "other"
