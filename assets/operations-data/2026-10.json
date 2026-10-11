@@ -2,7 +2,7 @@
   "month": "2026-10",
   "start": "2026-10-01",
   "end": "2026-10-10",
-  "fetchedAt": "2026-10-11T14:42:59Z",
+  "fetchedAt": "2026-10-11T14:55:00Z",
   "source": {
     "label": "Navicat 查询导出快照 · 同步后刷新网页读取",
     "mode": "snapshot",
@@ -22,8 +22,8 @@
       "四川地区": 1138,
       "江苏地区": 940
     },
-    "operatingStoresDefinition": "截止营业日总营业额大于0的门店数；原查询已校验门店日与维表唯一性。",
-    "operatingStoresMethod": "cutoff-day-positive-gmv-store-count"
+    "operatingStoresDefinition": "所选月内有过正营业额、门店来源1/2/3且月门店状态1/2的去重门店数；历史月表与当前门店表按原SQL合并。门店数未加GMV截止日筛选，统计日期独立于GMV截止日。",
+    "operatingStoresMethod": "monthly-positive-gmv-status-1-2-distinct-store-count"
   },
   "sourceComplete": false,
   "dataQualityWarning": "Navicat 定时查询快照；综合表口径、全国与五区及历史补录覆盖尚未完成现场复核。",
@@ -35,7 +35,7 @@
       "storeDays": 8761,
       "storeAverage": 1847.6282764524597,
       "status": "OK",
-      "operatingStores": 899,
+      "operatingStores": 906,
       "operatingStoresDate": "2026-10-10"
     },
     {
@@ -44,7 +44,7 @@
       "storeDays": 2082,
       "storeAverage": 1680.3407060518732,
       "status": "OK",
-      "operatingStores": 216,
+      "operatingStores": 219,
       "operatingStoresDate": "2026-10-10"
     },
     {
@@ -62,7 +62,7 @@
       "storeDays": 2449,
       "storeAverage": 1762.6299959167006,
       "status": "OK",
-      "operatingStores": 250,
+      "operatingStores": 251,
       "operatingStoresDate": "2026-10-10"
     },
     {
@@ -71,7 +71,7 @@
       "storeDays": 1032,
       "storeAverage": 2218.1237596899223,
       "status": "OK",
-      "operatingStores": 105,
+      "operatingStores": 106,
       "operatingStoresDate": "2026-10-10"
     },
     {
@@ -80,7 +80,7 @@
       "storeDays": 764,
       "storeAverage": 1612.2073036649215,
       "status": "OK",
-      "operatingStores": 79,
+      "operatingStores": 81,
       "operatingStoresDate": "2026-10-10"
     }
   ],
