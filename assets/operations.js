@@ -7,6 +7,7 @@
   const $ = (id) => document.getElementById(id);
   const numberFormat = new Intl.NumberFormat("zh-CN", { maximumFractionDigits: 2, minimumFractionDigits: 2 });
   const percentFormat = new Intl.NumberFormat("zh-CN", { maximumFractionDigits: 1, minimumFractionDigits: 1 });
+  const storeCountFormat = new Intl.NumberFormat("zh-CN", { maximumFractionDigits: 0 });
   const params = new URLSearchParams(window.location.search);
   const state = {
     month: MONTHS.includes(params.get("month")) ? params.get("month") : "2026-10",
@@ -159,14 +160,18 @@
 
   function targetFor(region) {
     const live = state.data?.month === state.month ? state.data.targets?.[state.tier]?.[region] : null;
-    return validatedTarget(live) || state.fallbackTargets[state.month]?.[state.tier]?.[region] || {};
+    const fallback = state.fallbackTargets[state.month]?.[state.tier]?.[region] || {};
+    const target = validatedTarget(live);
+    return target ? { ...target, operatingStores: target.operatingStores ?? fallback.operatingStores } : fallback;
   }
 
   function validatedTarget(value) {
     if (!value || typeof value !== "object") return null;
     const gmv = finite(value.gmv);
     const storeAverage = finite(value.storeAverage);
-    return gmv !== null && gmv > 0 && storeAverage !== null && storeAverage > 0 ? { gmv, storeAverage } : null;
+    const stores = finite(value.operatingStores);
+    const operatingStores = stores !== null && stores >= 0 ? stores : null;
+    return gmv !== null && gmv > 0 && storeAverage !== null && storeAverage > 0 ? { gmv, storeAverage, operatingStores } : null;
   }
 
   function validateFallbackTargets(payload) {
@@ -178,7 +183,7 @@
         months[month][tier] = {};
         REGIONS.forEach((region) => {
           const target = validatedTarget(payload.months[month]?.[tier]?.[region]);
-          if (!target) throw new Error("目标月份、档位或区域不完整。");
+          if (!target || target.operatingStores === null) throw new Error("目标月份、档位、区域或门店数量不完整。");
           months[month][tier][region] = target;
         });
       });
@@ -188,7 +193,7 @@
 
   async function loadFallbackTargets() {
     try {
-      const response = await fetch("../assets/operations-targets.json", { headers: { Accept: "application/json" } });
+      const response = await fetch("../assets/operations-targets.json?v=20261011-stores-target", { headers: { Accept: "application/json" } });
       if (!response.ok) return;
       state.fallbackTargets = validateFallbackTargets(await response.json());
       render();
@@ -282,7 +287,9 @@
     $("gmv-value").textContent = number(selected?.gmv, 10000);
     $("average-value").textContent = number(selected?.storeAverage);
     $("stores-value").textContent = selected?.operatingStores === null || selected?.operatingStores === undefined
-      ? "—" : new Intl.NumberFormat("zh-CN").format(selected.operatingStores);
+      ? "—" : storeCountFormat.format(selected.operatingStores);
+    $("stores-target").textContent = finite(target.operatingStores) === null ? "—" : `${storeCountFormat.format(target.operatingStores)} 家`;
+    $("stores-target").title = finite(target.operatingStores) === null ? "目标尚未取得" : `原表目标 ${target.operatingStores} 家；按原表整数格式显示`;
     $("stores-date").textContent = selected?.operatingStoresDate
       ? `${selected.operatingStoresDate.slice(5).replace("-", "/")} · 有营业额门店`
       : data?.end ? "门店数量待同步" : "暂无实际统计日";
@@ -328,7 +335,13 @@
         ? "在营 — 家" : `在营 ${row.operatingStores} 家`;
       stores.title = row.operatingStoresDate
         ? `${row.operatingStoresDate} 总营业额大于 0 的门店数` : "尚无同日门店数量";
-      heading.append(regionName, stores);
+      const storesTarget = document.createElement("span");
+      storesTarget.className = "region-stores-target";
+      storesTarget.textContent = finite(regionTarget.operatingStores) === null
+        ? "目标 — 家" : `目标 ${storeCountFormat.format(regionTarget.operatingStores)} 家`;
+      storesTarget.title = finite(regionTarget.operatingStores) === null ? "目标尚未取得"
+        : `${state.month} ${state.tier} · 原表在营门店目标 ${regionTarget.operatingStores} 家`;
+      heading.append(regionName, stores, storesTarget);
       tr.appendChild(heading);
       const forecast = forecastFor(row.region, data);
       const gap = finite(forecast.gap);
