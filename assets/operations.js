@@ -41,11 +41,14 @@
     const regions = REGIONS.map((region) => {
       const row = data?.rows.find((item) => item.region === region);
       const target = targetFor(region);
+      const forecast = forecastFor(region, data);
       return {
         region, gmv: finite(row?.gmv), storeDays: finite(row?.storeDays),
         storeAverage: finite(row?.storeAverage), operatingStores: finite(row?.operatingStores),
         operatingStoresDate: row?.operatingStoresDate || null,
+        status: row?.status || null,
         target: { gmv: finite(target.gmv), storeAverage: finite(target.storeAverage), operatingStores: finite(target.operatingStores) },
+        forecast: { available: forecast.available === true, gmv: finite(forecast.gmv), attainment: finite(forecast.attainment), historicalDate: forecast.historicalDate || null },
       };
     });
     const selected = regions.find((row) => row.region === state.region);
@@ -55,6 +58,8 @@
       loading: state.loading, failure: state.failure,
       start: data?.start || null, end: data?.end || null, fetchedAt: data?.fetchedAt || null,
       sourceComplete: data ? !(data.sourceComplete === false || data.sourceCompleteFalse === true || data.source?.complete === false) : null,
+      storeMethod: data?.source?.operatingStoresMethod || null,
+      storeDefinition: "月内有正GMV、来源1/2/3且对应月状态1/2的去重门店数；不是营业店天。",
       selected, target: selected?.target || {}, regions,
       forecast: {
         available: forecast.available === true, gmv: finite(forecast.gmv),

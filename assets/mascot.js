@@ -8,10 +8,12 @@
   const percentFormat = new Intl.NumberFormat("zh-CN", { minimumFractionDigits: 1, maximumFractionDigits: 1 });
   const messages = [];
   let context = null;
+  let conversationScope = null;
   let opened = false;
   let busy = false;
   let controller = null;
   let retryMessage = null;
+  let retryScope = null;
   let failedBubble = null;
 
   const root = document.createElement("aside");
@@ -36,7 +38,7 @@
         <button type="button" data-question="目前GMV是多少？">GMV</button>
         <button type="button" data-question="店日均达标了吗？">店日均</button>
         <button type="button" data-question="在营门店有多少？">在营门店</button>
-        <button type="button" data-question="五区表现如何？">五区对照</button>
+        <button type="button" data-question="三项一起看">三项一起看</button>
       </div>
       <form class="xd-form">
         <label class="xd-sr-only" for="xd-message-input">输入你想问熊大爷的问题</label>
@@ -154,6 +156,10 @@
     return current.selected ? [{ ...current.selected, target: current.target || current.selected.target }] : [];
   }
 
+  function wantsJointDiagnosis(question) {
+    return /为什么|原因|怎么会|怎么回事|只高|高但|三项|三個|三个指标|一起看|联合|关系|健康|经营怎么样|经营如何|整体经营/.test(question);
+  }
+
   function metricLines(row, metrics, targetsOnly = false) {
     const target = row.target || {};
     const lines = [];
@@ -197,7 +203,19 @@
     }
     const requestedTier = ["保底", "平衡", "冲刺"].find((tier) => question.includes(tier));
     if (requestedTier && requestedTier !== current.tier) return `现在使用${current.tier}目标。请先在看板切换到${requestedTier}，我就能按同一档位给你核对。`;
-    if (/为什么|原因|怎么会|怎么回事/.test(question)) return "我能帮你核对看板数字和目标差距。具体经营原因还需要业务记录核查，当前看板数据不足以判断。";
+    if (wantsJointDiagnosis(question)) {
+      const rows = selectionFor(question, current);
+      if (!rows.length) return "还没有可用的区域数据，先等看板刷新完成再做三项联合判断。";
+      if (!window.OperationsDiagnosis) return "三项联合诊断规则尚未加载，暂时不能下判断。";
+      const lines = rows.map((row) => {
+        const snapshot = { ...current, region: row.region, selected: row, target: row.target, forecast: row.forecast };
+        const result = window.OperationsDiagnosis.diagnose(snapshot, row);
+        return `${row.region}：${result.summary}\n本周核查：${result.action}\n验证条件：${result.falsifier}`;
+      });
+      const scope = `${current.month} · ${current.tier}目标`;
+      const freshness = current.loading ? "\n页面正在刷新，按当前快照待核对。" : current.failure ? "\n刷新未成功，按当前快照待核对。" : "";
+      return `${scope}${freshness}\n${lines.join("\n\n")}`;
+    }
     if (/同比|环比|上个月|去年营业额/.test(question)) return "当前看板没有提供同口径的对比期实际值，我不能据此计算同比或环比。";
     if (/店日均/.test(question) && /怎么算|怎么计算|公式|口径/.test(question)) {
       return "店日均＝同一期间的 GMV ÷ 有正营业额的营业店天。每家门店每个营业日计一个店天，全国和大区都按营业额与店天合计计算。";
@@ -233,12 +251,12 @@
   async function remoteAnswer(question, current, endpoint) {
     if (endpoint === false) throw new Error("对话服务地址未配置正确，请稍后再试。");
     controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 20000);
+    const timeout = setTimeout(() => controller.abort(), 45000);
     try {
       const response = await fetch(endpoint, {
         method: "POST", credentials: "omit", cache: "no-store", redirect: "error",
         referrerPolicy: "no-referrer", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ message: question, messages: messages.slice(-8), context: current }),
+        body: JSON.stringify({ message: question, messages: messages.slice(0, -1).slice(-4), context: compactContext(question, current) }),
         signal: controller.signal,
       });
       if (!response.ok) throw new Error("对话服务暂时不可用，可以稍后重试。");
@@ -250,13 +268,42 @@
       if (typeof reply !== "string" || !reply.trim() || reply.length > 8000) throw new Error("暂时没有收到有效回复，请重试。");
       return reply.trim();
     } catch (error) {
-      if (error.name === "AbortError") throw new Error("回复等待超过 20 秒，请重试。");
+      if (error.name === "AbortError") throw new Error("回复等待超过 45 秒，请重试。");
       if (error instanceof TypeError || error instanceof SyntaxError) throw new Error("暂时连接不上对话服务，请重试。");
       throw error;
     } finally {
       clearTimeout(timeout);
       controller = null;
     }
+  }
+
+  function compactContext(question, current) {
+    if (!current) return {};
+    const asksRegions = /五区|五个(?:区|区域|大区)|五大区|各区|各大区|各个区域|所有区域|全部区域|每个区域/.test(question);
+    const requested = selectionFor(question, current);
+    const rows = requested.length ? requested : asksRegions ? current.regions || [] : [];
+    const compactRow = (row) => {
+      if (!row) return null;
+      const snapshot = { ...current, region: row.region, selected: row, target: row.target, forecast: row.forecast };
+      const result = window.OperationsDiagnosis?.diagnose(snapshot, row);
+      return {
+        region: row.region, gmv: row.gmv, storeDays: row.storeDays, storeAverage: row.storeAverage,
+        operatingStores: row.operatingStores, operatingStoresDate: row.operatingStoresDate,
+        status: row.status, target: row.target, forecast: row.forecast,
+        ...(result ? { diagnosis: {
+          pattern: result.pattern, known: result.known, summary: result.summary,
+          action: result.action, falsifier: result.falsifier, basis: result.basis,
+        } } : {}),
+      };
+    };
+    return {
+      month: current.month, region: current.region, tier: current.tier, start: current.start, end: current.end,
+      loading: current.loading, failure: current.failure, sourceComplete: current.sourceComplete,
+      storeMethod: current.storeMethod, storeDefinition: current.storeDefinition,
+      selected: compactRow(rows.length === 1 ? rows[0] : current.selected), target: rows.length === 1 ? rows[0].target : current.target,
+      forecast: rows.length === 1 ? rows[0].forecast : current.forecast,
+      ...(rows.length > 1 ? { regions: rows.map(compactRow) } : {}),
+    };
   }
 
   function updateInput() {
@@ -279,25 +326,49 @@
     const message = typeof question === "string" ? question.trim().slice(0, 2000) : "";
     if (!message || busy) return;
     if (!opened) setOpen(true);
+    refreshScope();
+    const snapshot = latestContext();
+    const scopeKey = `${snapshot?.month || ""}|${snapshot?.region || ""}|${snapshot?.tier || ""}`;
+    if (retry && retryScope && scopeKey !== retryScope) {
+      messages.splice(0, messages.length);
+      conversationScope = scopeKey;
+      failedBubble?.querySelector(".xd-retry")?.remove();
+      failedBubble = null;
+      retryMessage = null;
+      retryScope = null;
+      appendMessage("assistant", "看板范围已改变，请按当前范围重新提问。");
+      return;
+    }
+    if (conversationScope && scopeKey !== conversationScope) messages.splice(0, messages.length);
+    conversationScope = scopeKey;
     if (failedBubble) failedBubble.querySelector(".xd-retry")?.remove();
     failedBubble = null;
     retryMessage = null;
+    retryScope = null;
     if (!retry) {
       appendMessage("user", message);
       messages.push({ role: "user", content: message });
       input.value = "";
     }
-    refreshScope();
-    const snapshot = latestContext();
     const endpoint = configuredEndpoint();
     setBusy(true);
     try {
       const answer = endpoint !== null ? await remoteAnswer(message, snapshot, endpoint) : localAnswer(message, snapshot);
+      const latest = latestContext();
+      const latestScope = `${latest?.month || ""}|${latest?.region || ""}|${latest?.tier || ""}`;
+      if (latestScope !== scopeKey) {
+        messages.splice(0, messages.length);
+        retryMessage = null;
+        retryScope = null;
+        appendMessage("assistant", "看板范围已改变，请按当前范围重新提问。");
+        return;
+      }
       appendMessage("assistant", answer);
       messages.push({ role: "assistant", content: answer });
       if (messages.length > 40) messages.splice(0, messages.length - 40);
     } catch (error) {
       retryMessage = message;
+      retryScope = scopeKey;
       failedBubble = appendMessage("assistant", error.message || "暂时没有收到回复，请重试。", { error: true });
     } finally {
       setBusy(false);
@@ -321,7 +392,18 @@
     const questionButton = event.target.closest("button[data-question]");
     if (questionButton) send(questionButton.dataset.question);
   });
-  window.addEventListener("operations:context", (event) => { context = event.detail; refreshScope(); });
+  window.addEventListener("operations:context", (event) => {
+    context = event.detail;
+    const nextScope = `${context?.month || ""}|${context?.region || ""}|${context?.tier || ""}`;
+    if (conversationScope && nextScope !== conversationScope) {
+      messages.splice(0, messages.length);
+      conversationScope = nextScope;
+      retryMessage = null;
+      retryScope = null;
+      failedBubble?.querySelector(".xd-retry")?.remove();
+    }
+    refreshScope();
+  });
 
   function fitViewport() {
     const wasAtBottom = conversation.scrollHeight - conversation.scrollTop - conversation.clientHeight < 48;
