@@ -6,7 +6,7 @@
   <meta name="theme-color" content="#f7f6f0">
   <meta name="description" content="全国与五个区域的 GMV、店日均、在营门店数及目标对照。">
   <title>经营观察 · 明星</title>
-  <link rel="stylesheet" href="../assets/operations.css?v=20261011-stores-target">
+  <link rel="stylesheet" href="../assets/operations.css?v=20261011-monthly-stores">
 </head>
 <body>
   <main class="dashboard" id="dashboard" aria-busy="false">
@@ -76,13 +76,13 @@
         <div class="progress-track" aria-hidden="true"><span id="average-progress"></span></div>
       </article>
       <article class="metric-card metric-stores">
-        <div class="card-heading"><h2>在营门店数</h2><span class="metric-caption">截止日有营业额</span></div>
+        <div class="card-heading"><h2>在营门店数</h2><span class="metric-caption" id="stores-caption">门店数量待同步</span></div>
         <p class="metric-value"><span id="stores-value">—</span><span class="metric-unit">家</span></p>
         <p class="stores-target"><span>全月目标</span><strong id="stores-target">—</strong></p>
         <p class="stores-date" id="stores-date">暂无实际统计日</p>
         <details class="stores-method">
           <summary>统计口径</summary>
-          <p>实际统计截止日总营业额大于 0 的门店，当天无营业额不计入。目标取原表所选月份和档位的在营门店数，两者口径尚待确认，因此不计算门店数达成率。目标按原表显示整数，源值含小数时，分别取整后的全国与五区合计可能相差 1 家。</p>
+          <p id="stores-definition">门店实际数量尚未取得。目标取原表所选月份和档位的在营门店数，按原表整数格式显示。</p>
         </details>
       </article>
     </section>
@@ -126,6 +126,6 @@
     <noscript><p class="notice">请启用浏览器 JavaScript，以加载最近同步的经营指标。</p></noscript>
   </main>
   <script src="../assets/operations-forecast.js?v=20261011" defer></script>
-  <script src="../assets/operations.js?v=20261011-stores-target" defer></script>
+  <script src="../assets/operations.js?v=20261011-monthly-stores" defer></script>
 </body>
 </html>

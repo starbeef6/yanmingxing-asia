@@ -26,9 +26,9 @@ import time
 from typing import Any
 
 from convert_snapshot import (
-    ALLOWED_MONTHS, MAX_SAFE_INTEGER, OPERATING_STORES_METHOD,
+    ALLOWED_MONTHS, MAX_SAFE_INTEGER, OPERATING_STORES_METHOD, LEGACY_OPERATING_STORES_METHOD,
     REGIONS, SnapshotError, aware_time, build_snapshots,
-    input_records, load_export, numeric, write_snapshots_atomic,
+    input_records, load_export, numeric, operating_stores_date, write_snapshots_atomic,
 )
 
 REMOTE_URL = "ssh://git@ssh.github.com:443/starbeef6/yanmingxing-asia.git"
@@ -232,8 +232,9 @@ def ensure_dedicated_repo(repo: Path, git: Git) -> None:
 def snapshot_period_end(payload: Any, month: str) -> date | None:
     """Validate the metadata needed to compare a new period with a saved one.
 
-    Accept both approved row formats. A malformed prior file must stop a
-    publication rather than erase its history by treating it as a first run.
+    Prior snapshots may use the original five-field or cutoff-day count schema.
+    Newly published snapshots use the monthly SQL count only. A malformed prior
+    file stops publication rather than erasing its history as a first run.
     """
     if (not isinstance(payload, dict) or set(payload) != TOP_FIELDS
             or payload.get("month") != month or payload.get("start") != month + "-01"
@@ -256,7 +257,14 @@ def snapshot_period_end(payload: Any, month: str) -> date | None:
             raise PublishError("快照截止日期无效；停止覆盖。") from None
         if end_value[:7] != month:
             raise PublishError("快照截止日期不属于对应月份；停止覆盖。")
+    fetched_at = None
+    if payload["fetchedAt"] is not None:
+        try:
+            fetched_at = aware_time(payload["fetchedAt"], "已发布 fetchedAt")
+        except SnapshotError:
+            raise PublishError("快照查询时间格式无效；停止覆盖。") from None
     row_schema = None
+    count_dates = set()
     for row in payload["rows"]:
         fields = set(row)
         if fields not in (LEGACY_ROW_FIELDS, CURRENT_ROW_FIELDS) or (row_schema is not None and fields != row_schema):
@@ -281,24 +289,34 @@ def snapshot_period_end(payload: Any, month: str) -> date | None:
         else:
             raise PublishError("快照区域状态无效；停止覆盖。")
         if fields == CURRENT_ROW_FIELDS:
-            if payload["source"].get("operatingStoresMethod") != OPERATING_STORES_METHOD:
+            method = payload["source"].get("operatingStoresMethod")
+            if method not in (OPERATING_STORES_METHOD, LEGACY_OPERATING_STORES_METHOD):
                 raise PublishError("快照在营门店数口径无效；停止覆盖。")
             if row["status"] == "NO_DATA":
                 if row["operatingStores"] is not None or row["operatingStoresDate"] is not None:
                     raise PublishError("无数据区域含在营门店数；停止覆盖。")
-            elif (type(row["operatingStores"]) is not int
-                    or not 0 <= row["operatingStores"] <= row["storeDays"]
-                    or row["operatingStoresDate"] != end_value):
-                raise PublishError("快照在营门店数或统计日期无效；停止覆盖。")
+            elif method == LEGACY_OPERATING_STORES_METHOD:
+                if (type(row["operatingStores"]) is not int
+                        or not 0 <= row["operatingStores"] <= row["storeDays"]
+                        or row["operatingStoresDate"] != end_value):
+                    raise PublishError("历史截止日门店数或统计日期无效；停止覆盖。")
+            else:
+                if (type(row["operatingStores"]) is not int
+                        or not 0 <= row["operatingStores"] <= MAX_SAFE_INTEGER
+                        or fetched_at is None):
+                    raise PublishError("月有营业额在营门店数或查询时间无效；停止覆盖。")
+                try:
+                    through = operating_stores_date(row["operatingStoresDate"], month,
+                                                    fetched_at, row["operatingStores"])
+                except SnapshotError:
+                    raise PublishError("月有营业额在营门店数统计日期无效；停止覆盖。") from None
+                count_dates.add(through)
+    if len(count_dates) > 1:
+        raise PublishError("月门店数来源统计日期在六个范围中不一致；停止覆盖。")
     has_actual = any(row["status"] == "OK" for row in payload["rows"])
     if payload["status"] != ("OK" if has_actual else "NO_DATA"):
         raise PublishError("快照总状态与实际行不一致；停止覆盖。")
-    if payload["fetchedAt"] is not None:
-        try:
-            aware_time(payload["fetchedAt"], "已发布 fetchedAt")
-        except SnapshotError:
-            raise PublishError("快照查询时间格式无效；停止覆盖。") from None
-    elif has_actual:
+    if fetched_at is None and has_actual:
         raise PublishError("实际快照缺少查询时间；停止覆盖。")
     if "dataThrough" in payload["source"] and payload["source"]["dataThrough"] != end_value:
         raise PublishError("快照来源实际截止日与页面截止日不一致；停止覆盖。")
@@ -320,7 +338,7 @@ def validate_payloads(payloads: dict[str, dict[str, Any]]) -> dict[str, bytes]:
             raise PublishError("快照结构或公开字段不符合已核准格式。")
         for row in payload["rows"]:
             row_fields = set(row)
-            if row_fields not in (LEGACY_ROW_FIELDS, CURRENT_ROW_FIELDS):
+            if row_fields != CURRENT_ROW_FIELDS:
                 raise PublishError("区域行含未核准字段或缺少必需字段。")
             if batch_row_fields is None:
                 batch_row_fields = row_fields
@@ -328,26 +346,21 @@ def validate_payloads(payloads: dict[str, dict[str, Any]]) -> dict[str, bytes]:
                 raise PublishError("四个月六个范围必须统一使用同一版区域行格式。")
             if row_fields == CURRENT_ROW_FIELDS:
                 if payload["source"].get("operatingStoresMethod") != OPERATING_STORES_METHOD:
-                    raise PublishError("在营门店数未使用已核准的截止日正营业额口径。")
+                    raise PublishError("在营门店数未使用已核准的月内正营业额及状态来源筛选口径。")
                 stores, stores_date = row["operatingStores"], row["operatingStoresDate"]
                 if row["status"] == "NO_DATA":
                     if stores is not None or stores_date is not None:
                         raise PublishError("无实际数据的区域不能发布在营门店数或统计日期。")
                 elif row["status"] == "OK":
-                    cumulative_days = row["storeDays"]
                     if (type(stores) is not int or not 0 <= stores <= MAX_SAFE_INTEGER
-                            or type(cumulative_days) is not int
-                            or not 0 <= cumulative_days <= MAX_SAFE_INTEGER
-                            or stores > cumulative_days):
-                        raise PublishError("截止日在营门店数须为有效非负整数，且不超过累计营业店天。")
-                    if (not isinstance(stores_date, str)
-                            or not re.fullmatch(r"\d{4}-\d{2}-\d{2}", stores_date)
-                            or stores_date != payload["end"]):
-                        raise PublishError("在营门店数日期须等于快照实际截止营业日。")
+                            or type(row["storeDays"]) is not int
+                            or not 0 <= row["storeDays"] <= MAX_SAFE_INTEGER):
+                        raise PublishError("月有营业额在营门店数须为有效非负整数。")
                     try:
-                        datetime.strptime(stores_date, "%Y-%m-%d")
-                    except ValueError:
-                        raise PublishError("在营门店数日期不是有效营业日期。") from None
+                        operating_stores_date(stores_date, month,
+                                              aware_time(payload["fetchedAt"], "fetchedAt"), stores)
+                    except SnapshotError:
+                        raise PublishError("月门店数统计日期须属于本月且不晚于本轮查询日期。") from None
                 else:
                     raise PublishError("区域行状态无效。")
         contents[f"assets/operations-data/{month}.json"] = (
@@ -483,7 +496,8 @@ def self_test() -> int:
                 for region in REGIONS:
                     records.append({"business_date": (start + timedelta(days=offset)).isoformat(),
                                     "region": region, "gmv": "10.25", "store_days": 1,
-                                    "source_rows": 1, "queried_at": "2026-10-10T04:00:02Z"})
+                                    "source_rows": 1, "queried_at": "2026-10-10T04:00:02Z",
+                                    "operating_stores": 1, "operating_stores_through": end.isoformat()})
         return records
 
     class FakeGit:
@@ -530,7 +544,7 @@ def self_test() -> int:
                     self.assertEqual(result, "pushed")
                     published = json.loads((base / "site" / PATHS[1]).read_text(encoding="utf-8"))
                     self.assertEqual(published["end"], cutoff)
-                    self.assertEqual(published["rows"][0]["operatingStoresDate"], cutoff)
+                    self.assertEqual(published["rows"][0]["operatingStoresDate"], "2026-10-09")
         def test_latest_main_cutoff_regression_rejects_before_any_monthly_write(self):
             latest = build_snapshots(fixture(), ALLOWED_MONTHS, now=clock)
             incoming_data = [row for row in fixture() if row["business_date"] != "2026-10-09"]
@@ -632,7 +646,10 @@ def self_test() -> int:
                 payload["source"].pop("operatingStoresMethod")
                 payload["source"].pop("operatingStoresDefinition")
             def reset_to_latest(repo):
-                for relative, body in validate_payloads(previous).items():
+                for month, old_payload in previous.items():
+                    snapshot_period_end(old_payload, month)
+                    relative = f"assets/operations-data/{month}.json"
+                    body = (json.dumps(old_payload, ensure_ascii=False, indent=2) + "\n").encode("utf-8")
                     target = repo / relative
                     target.parent.mkdir(parents=True, exist_ok=True)
                     target.write_bytes(body)
@@ -643,7 +660,7 @@ def self_test() -> int:
                                              author_email="synthetic@example.invalid", now=clock)
                 self.assertEqual(result, "pushed")
                 self.assertEqual(json.loads((repo / PATHS[0]).read_text(encoding="utf-8"))["rows"][0]["operatingStores"], 1)
-        def test_legacy_all_five_field_rows_remain_accepted(self):
+        def test_legacy_all_five_field_rows_are_readable_but_cannot_be_newly_published(self):
             payloads = build_snapshots(fixture(), ALLOWED_MONTHS, now=clock)
             for payload in payloads.values():
                 payload["source"].pop("operatingStoresMethod")
@@ -651,8 +668,81 @@ def self_test() -> int:
                 for row in payload["rows"]:
                     row.pop("operatingStores")
                     row.pop("operatingStoresDate")
-            self.assertEqual(set(validate_payloads(payloads)), set(PATHS))
-        def test_current_rows_publish_cutoff_count_and_future_nulls(self):
+            for month, payload in payloads.items():
+                snapshot_period_end(payload, month)
+            with self.assertRaises(PublishError):
+                validate_payloads(payloads)
+        def test_prior_cutoff_day_count_migrates_but_cannot_overwrite_monthly_method(self):
+            previous = build_snapshots(fixture(), ALLOWED_MONTHS, now=clock)
+            for month, payload in previous.items():
+                payload["source"]["operatingStoresMethod"] = LEGACY_OPERATING_STORES_METHOD
+                for row in payload["rows"]:
+                    if row["status"] == "OK":
+                        row["operatingStoresDate"] = payload["end"]
+                snapshot_period_end(payload, month)
+            def reset_to_latest(repo):
+                for month, payload in previous.items():
+                    target = repo / f"assets/operations-data/{month}.json"
+                    target.parent.mkdir(parents=True, exist_ok=True)
+                    target.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
+            with tempfile.TemporaryDirectory() as directory:
+                repo = Path(directory) / "site"
+                incoming = build_snapshots(fixture(), ALLOWED_MONTHS, now=clock)
+                result, _ = publish_payloads(incoming, repo, FakeGit(on_reset=reset_to_latest),
+                                             author_name="Synthetic", author_email="synthetic@example.invalid", now=clock)
+                self.assertEqual(result, "pushed")
+                self.assertEqual(json.loads((repo / PATHS[0]).read_text(encoding="utf-8"))["source"]["operatingStoresMethod"],
+                                 OPERATING_STORES_METHOD)
+            git = FakeGit()
+            with tempfile.TemporaryDirectory() as directory, self.assertRaises(PublishError):
+                publish_payloads(previous, Path(directory) / "site", git, author_name="Synthetic",
+                                 author_email="synthetic@example.invalid", now=clock)
+            self.assertEqual(git.calls, [])
+        def test_independent_monthly_count_date_and_today_counts_can_exceed_gmv_days(self):
+            records = fixture()
+            for row in records:
+                if row["business_date"].startswith("2026-10"):
+                    row["operating_stores_through"] = "2026-10-10"
+                    row["operating_stores"] = 12
+            payloads = build_snapshots(records, ALLOWED_MONTHS, now=clock)
+            october = json.loads(validate_payloads(payloads)[PATHS[1]])
+            self.assertEqual(october["end"], "2026-10-09")
+            self.assertEqual(october["rows"][0]["operatingStoresDate"], "2026-10-10")
+            self.assertEqual(october["rows"][0]["operatingStores"], 12)
+            self.assertEqual(october["rows"][0]["storeDays"], 9)
+        def test_monthly_source_status_correction_can_decrease_count_without_period_regression(self):
+            previous = build_snapshots(fixture(), ALLOWED_MONTHS, now=clock)
+            incoming = deepcopy(previous)
+            for row in incoming["2026-10"]["rows"]:
+                row["operatingStores"] = 0
+            def reset_to_latest(repo):
+                for relative, body in validate_payloads(previous).items():
+                    target = repo / relative
+                    target.parent.mkdir(parents=True, exist_ok=True)
+                    target.write_bytes(body)
+            with tempfile.TemporaryDirectory() as directory:
+                repo = Path(directory) / "site"
+                result, _ = publish_payloads(incoming, repo, FakeGit(on_reset=reset_to_latest),
+                                             author_name="Synthetic", author_email="synthetic@example.invalid", now=clock)
+                self.assertEqual(result, "pushed")
+                new = json.loads((repo / PATHS[1]).read_text(encoding="utf-8"))
+                self.assertEqual(new["rows"][0]["operatingStores"], 0)
+                for field in ("gmv", "storeDays", "storeAverage"):
+                    self.assertEqual(new["rows"][0][field], previous["2026-10"]["rows"][0][field])
+        def test_conflicting_region_count_dates_and_mixed_methods_stop_before_git(self):
+            for mixed_field, value in (("operatingStoresDate", "2026-09-29"),):
+                payloads = build_snapshots(fixture(), ALLOWED_MONTHS, now=clock)
+                payloads["2026-09"]["rows"][1][mixed_field] = value
+                git = FakeGit()
+                with tempfile.TemporaryDirectory() as directory, self.assertRaises(PublishError):
+                    publish_payloads(payloads, Path(directory) / "site", git,
+                                     author_name="Synthetic", author_email="synthetic@example.invalid", now=clock)
+                self.assertEqual(git.calls, [])
+            payloads = build_snapshots(fixture(), ALLOWED_MONTHS, now=clock)
+            payloads["2026-09"]["source"]["operatingStoresMethod"] = LEGACY_OPERATING_STORES_METHOD
+            with self.assertRaises(PublishError):
+                validate_payloads(payloads)
+        def test_current_rows_publish_monthly_count_and_future_nulls(self):
             payloads = build_snapshots(fixture(), ALLOWED_MONTHS, now=clock)
             result = validate_payloads(payloads)
             september = json.loads(result[PATHS[0]])
@@ -664,7 +754,7 @@ def self_test() -> int:
             self.assertTrue(all(row["operatingStores"] is None and row["operatingStoresDate"] is None
                                 for row in november["rows"]))
         def test_unsafe_operating_store_counts_are_rejected_before_git(self):
-            for value in (-1, 1.5, True, 2**53, "1", None, 31):
+            for value in (-1, 1.5, True, 2**53, "1", None):
                 payloads = build_snapshots(fixture(), ALLOWED_MONTHS, now=clock)
                 payloads["2026-09"]["rows"][0]["operatingStores"] = value
                 git = FakeGit()
@@ -673,8 +763,8 @@ def self_test() -> int:
                         publish_payloads(payloads, Path(directory) / "site", git,
                                          author_name="Synthetic", author_email="synthetic@example.invalid", now=clock)
                     self.assertEqual(git.calls, [])
-        def test_cutoff_store_date_must_be_valid_and_match_period_end(self):
-            for value in ("2026-09-29", "2026-10-09", "20260930", None):
+        def test_monthly_store_date_must_be_valid_in_month_and_not_after_query(self):
+            for value in ("2026-10-09", "20260930", None, "2026-09-31"):
                 payloads = build_snapshots(fixture(), ALLOWED_MONTHS, now=clock)
                 payloads["2026-09"]["rows"][0]["operatingStoresDate"] = value
                 with self.subTest(value=value), self.assertRaises(PublishError):
@@ -683,6 +773,11 @@ def self_test() -> int:
             payloads["2026-09"]["end"] = "2026-09-31"
             for row in payloads["2026-09"]["rows"]:
                 row["operatingStoresDate"] = "2026-09-31"
+            with self.assertRaises(PublishError):
+                validate_payloads(payloads)
+            payloads = build_snapshots(fixture(), ALLOWED_MONTHS, now=clock)
+            for row in payloads["2026-10"]["rows"]:
+                row["operatingStoresDate"] = "2026-10-11"
             with self.assertRaises(PublishError):
                 validate_payloads(payloads)
         def test_partial_region_or_month_upgrade_is_rejected(self):

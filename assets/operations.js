@@ -4,6 +4,8 @@
   const MONTHS = ["2026-09", "2026-10", "2026-11", "2026-12"];
   const REGIONS = ["全国", "北区", "西区", "南区", "四川地区", "江苏地区"];
   const TIERS = ["保底", "平衡", "冲刺"];
+  const MONTHLY_STORE_METHOD = "monthly-positive-gmv-status-1-2-distinct-store-count";
+  const LEGACY_STORE_METHOD = "cutoff-day-positive-gmv-store-count";
   const $ = (id) => document.getElementById(id);
   const numberFormat = new Intl.NumberFormat("zh-CN", { maximumFractionDigits: 2, minimumFractionDigits: 2 });
   const percentFormat = new Intl.NumberFormat("zh-CN", { maximumFractionDigits: 1, minimumFractionDigits: 1 });
@@ -110,10 +112,13 @@
     const countKeys = payload.rows.map((row) => row &&
       ["operatingStores", "operatingStoresDate"].filter((key) => Object.hasOwn(row, key)).length);
     const hasStoreCounts = countKeys.every((keys) => keys === 2);
+    const storeMethod = payload.source.operatingStoresMethod;
     if ((!hasStoreCounts && countKeys.some((keys) => keys !== 0)) || (hasStoreCounts &&
-        payload.source.operatingStoresMethod !== "cutoff-day-positive-gmv-store-count")) {
+        ![MONTHLY_STORE_METHOD, LEGACY_STORE_METHOD].includes(storeMethod))) {
       throw new Error("门店数量的口径或字段不完整，保留上次成功结果。");
     }
+    const storeQueryDay = typeof payload.fetchedAt === "string" && Number.isFinite(Date.parse(payload.fetchedAt))
+      ? new Date(Date.parse(payload.fetchedAt) + 8 * 60 * 60 * 1000).toISOString().slice(0, 10) : null;
     const rows = payload.rows.map((row) => {
       if (!row || !REGIONS.includes(row.region) || seen.has(row.region)) throw new Error("返回的区域数据有误，请重新刷新。");
       seen.add(row.region);
@@ -136,7 +141,9 @@
         throw new Error("店日均与营业额、营业店天不一致，保留上次成功结果。");
       }
       if (hasStoreCounts && (typeof row.operatingStores !== "number" || !Number.isSafeInteger(operatingStores) ||
-          operatingStores < 0 || operatingStores > storeDays || operatingStoresDate !== payload.end || !validDate(operatingStoresDate))) {
+          operatingStores < 0 || !validDate(operatingStoresDate) || !operatingStoresDate.startsWith(requestedMonth) ||
+          (storeMethod === LEGACY_STORE_METHOD && (operatingStores > storeDays || operatingStoresDate !== payload.end)) ||
+          (storeMethod === MONTHLY_STORE_METHOD && (!storeQueryDay || operatingStoresDate > storeQueryDay)))) {
         throw new Error("门店数量或统计日有误，保留上次成功结果。");
       }
       return { region: row.region, gmv, storeDays, storeAverage: calculatedAverage, operatingStores, operatingStoresDate, status: "OK" };
@@ -193,7 +200,7 @@
 
   async function loadFallbackTargets() {
     try {
-      const response = await fetch("../assets/operations-targets.json?v=20261011-stores-target", { headers: { Accept: "application/json" } });
+      const response = await fetch("../assets/operations-targets.json?v=20261011-monthly-stores", { headers: { Accept: "application/json" } });
       if (!response.ok) return;
       state.fallbackTargets = validateFallbackTargets(await response.json());
       render();
@@ -275,14 +282,24 @@
     const rows = data?.rows || [];
     const selected = rows.find((row) => row.region === state.region);
     const target = targetFor(state.region);
+    const monthlyStores = data?.source?.operatingStoresMethod === MONTHLY_STORE_METHOD;
+    const legacyStores = data?.source?.operatingStoresMethod === LEGACY_STORE_METHOD;
     $("month").value = state.month;
     $("region").value = state.region;
     document.querySelectorAll('input[name="tier"]').forEach((input) => { input.checked = input.value === state.tier; });
     $("scope").textContent = `${state.region} · ${period(data)} · ${state.tier}目标`;
     $("comparison-period").textContent = `${Number(state.month.slice(-2))} 月 · ${state.tier}目标`;
-    $("comparison-caption").textContent = data?.end
-      ? `目标为所选档位的全月目标；在营统计日 ${data.end.slice(5).replace("-", "/")}，按当天有营业额统计。`
-      : "目标为所选档位的全月目标；在营按实际截止日有营业额统计。";
+    $("comparison-caption").textContent = monthlyStores
+      ? "目标为所选档位的全月目标；在营为月内有营业额且状态为在营的去重门店数。"
+      : legacyStores && data?.end
+        ? `目标为所选档位的全月目标；在营统计日 ${data.end.slice(5).replace("-", "/")}，按当天有营业额统计。`
+        : "目标为所选档位的全月目标；在营门店数量待同步。";
+    $("stores-caption").textContent = monthlyStores ? "有营业额且在营" : legacyStores ? "截止日有营业额" : "门店数量待同步";
+    $("stores-definition").textContent = monthlyStores
+      ? "统计所选月份内有过正营业额、门店来源为 1/2/3，且对应月份门店状态为 1/2 的去重门店数。历史月份使用月门店表，当前月份并入最新门店表；统计日单独标明，可与 GMV 截止日不同。目标取原表所选月份和档位；源值含小数，分别取整后全国与五区合计可能相差 1 家。"
+      : legacyStores
+        ? "实际统计截止日总营业额大于 0 的门店，当天无营业额不计入。目标取原表所选月份和档位的在营门店数，两者口径尚待确认，因此不计算门店数达成率。目标按原表显示整数，源值含小数时，分别取整后的全国与五区合计可能相差 1 家。"
+        : "门店实际数量尚未取得。目标取原表所选月份和档位的在营门店数，按原表整数格式显示。";
     $("timestamp").textContent = data?.fetchedAt ? `取数：${timestamp(data.fetchedAt)}` : "尚未取数";
     $("gmv-value").textContent = number(selected?.gmv, 10000);
     $("average-value").textContent = number(selected?.storeAverage);
@@ -291,7 +308,9 @@
     $("stores-target").textContent = finite(target.operatingStores) === null ? "—" : `${storeCountFormat.format(target.operatingStores)} 家`;
     $("stores-target").title = finite(target.operatingStores) === null ? "目标尚未取得" : `原表目标 ${target.operatingStores} 家；按原表整数格式显示`;
     $("stores-date").textContent = selected?.operatingStoresDate
-      ? `${selected.operatingStoresDate.slice(5).replace("-", "/")} · 有营业额门店`
+      ? monthlyStores
+        ? `月内累计，截至 ${selected.operatingStoresDate.slice(5).replace("-", "/")}`
+        : `${selected.operatingStoresDate.slice(5).replace("-", "/")} · 当天有营业额门店`
       : data?.end ? "门店数量待同步" : "暂无实际统计日";
     $("gmv-target").textContent = number(target.gmv, 10000, " 万元");
     $("average-target").textContent = number(target.storeAverage, 1, " 元");
@@ -334,7 +353,10 @@
       stores.textContent = row.operatingStores === null || row.operatingStores === undefined
         ? "在营 — 家" : `在营 ${row.operatingStores} 家`;
       stores.title = row.operatingStoresDate
-        ? `${row.operatingStoresDate} 总营业额大于 0 的门店数` : "尚无同日门店数量";
+        ? monthlyStores
+          ? `${state.month} 月内有正营业额、来源 1/2/3、对应月状态 1/2 的去重门店数；截至 ${row.operatingStoresDate}`
+          : `${row.operatingStoresDate} 当天总营业额大于 0 的门店数`
+        : "门店数量尚未取得";
       const storesTarget = document.createElement("span");
       storesTarget.className = "region-stores-target";
       storesTarget.textContent = finite(regionTarget.operatingStores) === null

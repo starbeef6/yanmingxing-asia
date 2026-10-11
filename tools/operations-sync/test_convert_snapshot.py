@@ -30,7 +30,8 @@ def synthetic_rows(months=("2026-09", "2026-10")):
             for region in REGIONS:
                 rows.append({"business_date": (start + timedelta(days=offset)).isoformat(),
                              "region": region, "gmv": "0", "store_days": 0,
-                             "queried_at": QUERY_TIME, "source_rows": 0})
+                             "queried_at": QUERY_TIME, "source_rows": 0,
+                             "operating_stores": 0, "operating_stores_through": end.isoformat()})
     return rows
 
 
@@ -38,6 +39,17 @@ def set_amount(rows, business_date, region, gmv, days, source_rows=None):
     row = next(row for row in rows if row["business_date"] == business_date and row["region"] == region)
     row.update(gmv=gmv, store_days=days, source_rows=days if source_rows is None else source_rows)
     return row
+
+
+def set_monthly_stores(rows, month, region, stores, through=None):
+    for row in rows:
+        if row["business_date"].startswith(month) and row["region"] == region:
+            row["operating_stores"] = stores
+    if through is not None:
+        # Coverage is a global source date repeated for all six scopes.
+        for row in rows:
+            if row["business_date"].startswith(month):
+                row["operating_stores_through"] = through
 
 
 class ConversionTests(unittest.TestCase):
@@ -100,53 +112,125 @@ class ConversionTests(unittest.TestCase):
                                 and row["storeDays"] is None and row["operatingStores"] is None
                                 and row["operatingStoresDate"] is None for row in result[month]["rows"]))
 
-    def test_operating_stores_uses_cutoff_day_not_cumulative_or_average(self):
+    def test_operating_stores_uses_monthly_distinct_sql_not_cutoff_day_or_daily_sum(self):
         rows = synthetic_rows()
         set_amount(rows, "2026-10-01", "全国", "100", 1)
         set_amount(rows, "2026-10-02", "全国", "300", 3)
         set_amount(rows, "2026-10-09", "全国", "200", 2)
+        set_monthly_stores(rows, "2026-10", "全国", 4)
         result = build_snapshots(rows, ALLOWED_MONTHS, now=NOW)["2026-10"]
         national = result["rows"][0]
         self.assertEqual(national["storeDays"], 6)
-        self.assertEqual(national["operatingStores"], 2)
+        self.assertEqual(national["operatingStores"], 4)
         self.assertEqual(national["operatingStoresDate"], "2026-10-09")
         self.assertEqual(result["source"]["operatingStoresDefinition"], OPERATING_STORES_DEFINITION)
         self.assertEqual(result["source"]["operatingStoresMethod"], OPERATING_STORES_METHOD)
 
-    def test_earlier_backfill_changes_gmv_without_changing_cutoff_store_count(self):
+    def test_earlier_backfill_updates_monthly_count_without_manual_numeric_patch(self):
         rows = synthetic_rows()
         set_amount(rows, "2026-10-01", "全国", "100", 1)
         set_amount(rows, "2026-10-09", "全国", "200", 2)
+        set_monthly_stores(rows, "2026-10", "全国", 2)
         before = build_snapshots(rows, ALLOWED_MONTHS, now=NOW)["2026-10"]["rows"][0]
         set_amount(rows, "2026-10-01", "全国", "700", 4)
+        set_monthly_stores(rows, "2026-10", "全国", 4)
         after = build_snapshots(rows, ALLOWED_MONTHS, now=NOW)["2026-10"]["rows"][0]
         self.assertEqual(before["gmv"], 300)
         self.assertEqual(after["gmv"], 900)
         self.assertNotEqual(before["storeDays"], after["storeDays"])
         self.assertEqual(before["operatingStores"], 2)
-        self.assertEqual(after["operatingStores"], 2)
+        self.assertEqual(after["operatingStores"], 4)
         self.assertEqual(after["operatingStoresDate"], before["operatingStoresDate"])
 
-    def test_cutoff_backfill_updates_store_count_on_full_period_requery(self):
+    def test_monthly_status_correction_can_decrease_count_without_changing_gmv(self):
         rows = synthetic_rows()
         set_amount(rows, "2026-10-01", "全国", "100", 1)
         set_amount(rows, "2026-10-09", "全国", "200", 2)
+        set_monthly_stores(rows, "2026-10", "全国", 4)
         before = build_snapshots(rows, ALLOWED_MONTHS, now=NOW)["2026-10"]["rows"][0]
-        set_amount(rows, "2026-10-09", "全国", "900", 4)
+        set_monthly_stores(rows, "2026-10", "全国", 2)
         after = build_snapshots(rows, ALLOWED_MONTHS, now=NOW)["2026-10"]["rows"][0]
-        self.assertEqual(before["operatingStores"], 2)
-        self.assertEqual(after["operatingStores"], 4)
+        self.assertEqual(before["operatingStores"], 4)
+        self.assertEqual(after["operatingStores"], 2)
         self.assertEqual(after["operatingStoresDate"], "2026-10-09")
-        self.assertEqual(after["gmv"], 1000)
+        self.assertEqual(after["gmv"], before["gmv"])
+        self.assertEqual(after["storeDays"], before["storeDays"])
+        self.assertEqual(after["storeAverage"], before["storeAverage"])
 
-    def test_zero_source_cutoff_with_earlier_gmv_is_zero_not_missing(self):
+    def test_zero_source_cutoff_with_earlier_gmv_keeps_monthly_eligible_store(self):
         rows = synthetic_rows()
         set_amount(rows, "2026-10-01", "全国", "100", 1)
+        set_monthly_stores(rows, "2026-10", "全国", 1)
         result = build_snapshots(rows, ALLOWED_MONTHS, now=NOW)["2026-10"]["rows"][0]
         self.assertEqual(result["status"], "OK")
         self.assertEqual(result["gmv"], 100)
-        self.assertEqual(result["operatingStores"], 0)
+        self.assertEqual(result["operatingStores"], 1)
         self.assertEqual(result["operatingStoresDate"], "2026-10-09")
+
+    def test_monthly_count_can_include_today_and_exceed_completed_day_denominator(self):
+        rows = synthetic_rows()
+        set_amount(rows, "2026-10-01", "全国", "100", 1)
+        set_monthly_stores(rows, "2026-10", "全国", 5, "2026-10-10")
+        result = build_snapshots(rows, ALLOWED_MONTHS, now=NOW)["2026-10"]
+        national = result["rows"][0]
+        self.assertEqual(result["end"], "2026-10-09")
+        self.assertEqual(national["operatingStoresDate"], "2026-10-10")
+        self.assertEqual(national["operatingStores"], 5)
+        self.assertEqual(national["gmv"], 100)
+        self.assertEqual(national["storeDays"], 1)
+        self.assertEqual(national["storeAverage"], 100)
+
+    def test_repeated_month_count_and_coverage_conflicts_are_rejected(self):
+        original = synthetic_rows()
+        for field, value in (("operating_stores", 1),
+                             ("operating_stores_through", "2026-09-29")):
+            rows = deepcopy(original)
+            rows[0][field] = value
+            with self.subTest(field=field), self.assertRaisesRegex(SnapshotError, "不同月门店数|统计日期不一致"):
+                build_snapshots(rows, ALLOWED_MONTHS, now=NOW)
+        rows = synthetic_rows()
+        for row in rows:
+            if row["business_date"].startswith("2026-09") and row["region"] == "北区":
+                row["operating_stores_through"] = "2026-09-29"
+        with self.assertRaisesRegex(SnapshotError, "六个范围"):
+            build_snapshots(rows, ALLOWED_MONTHS, now=NOW)
+
+    def test_monthly_count_dates_reject_unknown_scope_and_source_future(self):
+        for value in (None, "20260930", "2026-09-31", "2026-10-09", "2026-08-31"):
+            rows = synthetic_rows()
+            for row in rows:
+                if row["business_date"].startswith("2026-09"):
+                    row["operating_stores_through"] = value
+            with self.subTest(value=value), self.assertRaises(SnapshotError):
+                build_snapshots(rows, ALLOWED_MONTHS, now=NOW)
+        rows = synthetic_rows()
+        set_monthly_stores(rows, "2026-10", "全国", 1, "2026-10-11")
+        with self.assertRaisesRegex(SnapshotError, "晚于本轮查询"):
+            build_snapshots(rows, ALLOWED_MONTHS, now=NOW)
+
+    def test_monthly_count_conflict_preserves_all_previous_snapshot_bytes(self):
+        rows = synthetic_rows()
+        set_amount(rows, "2026-09-01", "全国", "100", 1)
+        set_monthly_stores(rows, "2026-09", "全国", 1)
+        with tempfile.TemporaryDirectory() as directory:
+            directory = Path(directory)
+            exported, output = directory / "export.json", directory / "out"
+            exported.write_text(json.dumps(rows), encoding="utf-8")
+            convert_file(exported, output, ALLOWED_MONTHS, now=NOW)
+            before = {path.name: path.read_bytes() for path in output.glob("*.json")}
+            rows[0]["operating_stores"] = 9
+            exported.write_text(json.dumps(rows), encoding="utf-8")
+            with self.assertRaises(SnapshotError):
+                convert_file(exported, output, ALLOWED_MONTHS, now=NOW)
+            self.assertEqual(before, {path.name: path.read_bytes() for path in output.glob("*.json")})
+
+    def test_old_six_field_export_cannot_restore_provisional_count_method(self):
+        rows = synthetic_rows()
+        for row in rows:
+            row.pop("operating_stores")
+            row.pop("operating_stores_through")
+        with self.assertRaisesRegex(SnapshotError, "八个汇总字段"):
+            build_snapshots(rows, ALLOWED_MONTHS, now=NOW)
 
     def test_utc_clock_uses_beijing_completed_day(self):
         utc_now = datetime.fromisoformat("2026-10-09T16:05:00+00:00")
@@ -225,12 +309,13 @@ class ConversionTests(unittest.TestCase):
     def test_current_month_missing_trailing_day_uses_export_cutoff(self):
         rows = [row for row in synthetic_rows() if row["business_date"] != "2026-10-09"]
         set_amount(rows, "2026-10-08", "全国", "200", 2)
+        set_monthly_stores(rows, "2026-10", "全国", 3, "2026-10-10")
         result = build_snapshots(rows, ALLOWED_MONTHS, now=NOW)["2026-10"]
         self.assertEqual(result["end"], "2026-10-08")
         self.assertEqual(result["source"]["expectedThrough"], "2026-10-09")
         self.assertEqual(result["source"]["dataThrough"], "2026-10-08")
-        self.assertEqual(result["rows"][0]["operatingStoresDate"], "2026-10-08")
-        self.assertEqual(result["rows"][0]["operatingStores"], 2)
+        self.assertEqual(result["rows"][0]["operatingStoresDate"], "2026-10-10")
+        self.assertEqual(result["rows"][0]["operatingStores"], 3)
 
     def test_fresh_early_morning_query_accepts_one_or_two_day_source_lag(self):
         now = datetime.fromisoformat("2026-10-10T18:08:00+00:00")
@@ -248,7 +333,7 @@ class ConversionTests(unittest.TestCase):
                 self.assertEqual(october["source"]["dataThrough"], cutoff)
                 self.assertEqual(october["fetchedAt"], query_time)
                 self.assertEqual(october["rows"][0]["gmv"], 250)
-                self.assertEqual(october["rows"][0]["operatingStoresDate"], cutoff)
+                self.assertEqual(october["rows"][0]["operatingStoresDate"], "2026-10-09")
                 self.assertEqual(result["2026-09"]["end"], "2026-09-30")
 
     def test_current_month_missing_internal_date_or_scope_is_rejected(self):
@@ -293,7 +378,10 @@ class ConversionTests(unittest.TestCase):
         cases = [("store_days", -1), ("store_days", "1.5"), ("store_days", True),
                  ("store_days", 2**53), ("source_rows", -2), ("gmv", "NaN"),
                  ("gmv", "Infinity"), ("gmv", "1e1000"), ("gmv", "1e-1000"),
-                 ("gmv", True), ("gmv", "")]
+                 ("gmv", True), ("gmv", ""), ("operating_stores", -1),
+                 ("operating_stores", "1.5"), ("operating_stores", True),
+                 ("operating_stores", 2**53), ("operating_stores", None),
+                 ("operating_stores", "NaN"), ("operating_stores", "Infinity")]
         for field, value in cases:
             rows = synthetic_rows()
             rows[0][field] = value

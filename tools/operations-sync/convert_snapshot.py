@@ -25,11 +25,13 @@ from typing import Any
 BUSINESS_ZONE = timezone(timedelta(hours=8))
 REGIONS = ("全国", "北区", "西区", "南区", "四川地区", "江苏地区")
 ALLOWED_MONTHS = ("2026-09", "2026-10", "2026-11", "2026-12")
-INPUT_FIELDS = {"business_date", "region", "gmv", "store_days", "queried_at", "source_rows"}
+INPUT_FIELDS = {"business_date", "region", "gmv", "store_days", "queried_at", "source_rows",
+                "operating_stores", "operating_stores_through"}
 MAX_SAFE_INTEGER = 2**53 - 1
 QUALITY_WARNING = "Navicat 定时查询快照；综合表口径、全国与五区及历史补录覆盖尚未完成现场复核。"
-OPERATING_STORES_DEFINITION = "截止营业日总营业额大于0的门店数；原查询已校验门店日与维表唯一性。"
-OPERATING_STORES_METHOD = "cutoff-day-positive-gmv-store-count"
+OPERATING_STORES_DEFINITION = "所选月内有过正营业额、门店来源1/2/3且月门店状态1/2的去重门店数；历史月表与当前门店表按原SQL合并。门店数未加GMV截止日筛选，统计日期独立于GMV截止日。"
+OPERATING_STORES_METHOD = "monthly-positive-gmv-status-1-2-distinct-store-count"
+LEGACY_OPERATING_STORES_METHOD = "cutoff-day-positive-gmv-store-count"
 
 
 class SnapshotError(ValueError):
@@ -65,6 +67,29 @@ def count(value: Any, field: str) -> int:
     if parsed < 0 or parsed != parsed.to_integral_value() or parsed > MAX_SAFE_INTEGER:
         raise SnapshotError(f"{field} 必须是不超过网页精度上限的非负整数。")
     return int(parsed)
+
+
+def operating_stores_date(value: Any, month: str, queried_at: datetime, stores: int) -> date | None:
+    """Validate the independently sourced monthly-count coverage date.
+
+    The SQL's optional end filter remains disabled: today can contribute to the
+    monthly distinct count while turnover still covers only completed days.
+    The coverage date is the monthly MAX usable source date, including records
+    with zero turnover. It is never inferred from the count or the query clock.
+    """
+    if value is None:
+        raise SnapshotError("有营业额在营门店数缺少来源统计日期。")
+    if not isinstance(value, str) or not re.fullmatch(r"\d{4}-\d{2}-\d{2}", value):
+        raise SnapshotError("operating_stores_through 必须为 YYYY-MM-DD。")
+    try:
+        observed = date.fromisoformat(value)
+    except ValueError:
+        raise SnapshotError("operating_stores_through 不是有效日期。") from None
+    if value[:7] != month:
+        raise SnapshotError("有营业额在营门店数统计日期不属于对应月份。")
+    if observed > queried_at.astimezone(BUSINESS_ZONE).date():
+        raise SnapshotError("有营业额在营门店数统计日期晚于本轮查询日期。")
+    return observed
 
 
 def json_number(value: Decimal, field: str) -> float:
@@ -112,11 +137,13 @@ def build_snapshots(raw: Any, expected_months: list[str] | tuple[str, ...], *,
     periods = {month: expected_period(month, now) for month in months}
     current_month = now.astimezone(BUSINESS_ZONE).strftime("%Y-%m")
     grouped: dict[str, dict[date, dict[str, dict[str, Any]]]] = defaultdict(lambda: defaultdict(dict))
+    monthly_stores: dict[tuple[str, str], tuple[int, date | None]] = {}
+    monthly_stores_dates: dict[str, date | None] = {}
     queried_at_value: str | None = None
     query_instant: datetime | None = None
     for index, row in enumerate(input_records(raw), start=1):
         if set(row) != INPUT_FIELDS:
-            raise SnapshotError(f"第 {index} 行字段不符合六个汇总字段；禁止发布未知附加列。")
+            raise SnapshotError(f"第 {index} 行字段不符合八个汇总字段；禁止发布未知附加列。")
         value = row["business_date"]
         if not isinstance(value, str) or not re.fullmatch(r"\d{4}-\d{2}-\d{2}", value):
             raise SnapshotError(f"第 {index} 行 business_date 必须为 YYYY-MM-DD。")
@@ -151,6 +178,16 @@ def build_snapshots(raw: Any, expected_months: list[str] | tuple[str, ...], *,
             raise SnapshotError(f"{value} / {region} 的店天超过来源行数。")
         if source_rows == 0 and (gmv != 0 or store_days != 0):
             raise SnapshotError(f"{value} / {region} 的零来源行返回了营业数据。")
+        stores = count(row["operating_stores"], "operating_stores")
+        stores_through = operating_stores_date(row["operating_stores_through"], month, observed_time, stores)
+        pair = (stores, stores_through)
+        scope = (month, region)
+        if scope in monthly_stores and monthly_stores[scope] != pair:
+            raise SnapshotError(f"{month} / {region} 混入不同月门店数或统计日期；不能将日行重复值相加。")
+        if month in monthly_stores_dates and monthly_stores_dates[month] != stores_through:
+            raise SnapshotError(f"{month} 六个范围的月门店数统计日期不一致。")
+        monthly_stores[scope] = pair
+        monthly_stores_dates[month] = stores_through
         grouped[month][business_date][region] = {
             "gmv": gmv, "storeDays": store_days, "sourceRows": source_rows,
         }
@@ -207,11 +244,11 @@ def build_snapshots(raw: Any, expected_months: list[str] | tuple[str, ...], *,
                     average = json_number(total_gmv / total_days, "storeAverage") if total_days else None
                     rows.append({"region": region, "gmv": json_number(total_gmv, "累计 gmv"),
                                  "storeDays": total_days, "storeAverage": average, "status": "OK",
-                                 # The SQL has already checked unique store/day rows and
-                                 # dimension joins. A single day's positive-GMV store-days
-                                 # therefore count stores; a period sum does not.
-                                 "operatingStores": grouped[month][end][region]["storeDays"],
-                                 "operatingStoresDate": end.isoformat()})
+                                 # Already a monthly SQL DISTINCT aggregate repeated
+                                 # on daily rows. Never sum it or derive it from storeDays.
+                                 "operatingStores": monthly_stores[(month, region)][0],
+                                 "operatingStoresDate": (monthly_stores[(month, region)][1].isoformat()
+                                                         if monthly_stores[(month, region)][1] else None)})
                 source_rows_total[region] = total_source_rows
         payloads[month] = {
             "month": month, "start": start.isoformat(), "end": end.isoformat() if end else None,
