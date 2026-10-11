@@ -17,6 +17,9 @@ BACKEND_HOST = "127.0.0.1:8787"
 BACKEND_ORIGIN = "http://127.0.0.1:8787"
 MAX_BODY = 24 * 1024
 MAX_RESPONSE = 64 * 1024
+ALLOWED_PREFLIGHT_HEADERS = frozenset({
+    "content-type", "cache-control", "pragma", "accept", "accept-language", "content-language",
+})
 FORWARD_TIMEOUT = 50
 HEALTH_TIMEOUT = 4
 ALLOWED_ORIGINS = frozenset({
@@ -138,7 +141,7 @@ class GatewayHandler(BaseHTTPRequestHandler):
         method = self.headers.get("Access-Control-Request-Method", "")
         requested_headers = self.headers.get("Access-Control-Request-Headers", "")
         requested = [item.strip().lower() for item in requested_headers.split(",") if item.strip()]
-        if not _origin_allowed(origin) or method != "POST" or any(item != "content-type" for item in requested):
+        if not _origin_allowed(origin) or method != "POST" or any(item not in ALLOWED_PREFLIGHT_HEADERS for item in requested):
             self._send(403, {"error": "Preflight rejected."})
             return
         self.send_response(204)
@@ -147,7 +150,7 @@ class GatewayHandler(BaseHTTPRequestHandler):
         self.send_header("Vary", "Origin")
         self.send_header("Access-Control-Allow-Origin", origin)
         self.send_header("Access-Control-Allow-Methods", "POST")
-        self.send_header("Access-Control-Allow-Headers", "Content-Type")
+        self.send_header("Access-Control-Allow-Headers", "Content-Type, Cache-Control, Pragma, Accept, Accept-Language, Content-Language")
         self.send_header("Access-Control-Max-Age", "600")
         self.end_headers()
 

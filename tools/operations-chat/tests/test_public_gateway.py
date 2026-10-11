@@ -116,15 +116,16 @@ class PublicGatewayHTTPTests(unittest.TestCase):
                 self.assertEqual(status, 403)
                 self.assertNotIn("Access-Control-Allow-Origin", headers)
 
-    def test_preflight_is_limited_to_post_and_content_type(self):
+    def test_preflight_allows_safari_headers_but_rejects_authorization(self):
+        safari_headers = "content-type, cache-control, pragma, accept, accept-language, content-language"
         status, headers, raw = self.send("OPTIONS", "/api/chat", "https://starbeef6.github.io", headers={
             "Access-Control-Request-Method": "POST",
-            "Access-Control-Request-Headers": "content-type",
+            "Access-Control-Request-Headers": safari_headers,
         })
         self.assertEqual(status, 204)
         self.assertEqual(raw, b"")
         self.assertEqual(headers["Access-Control-Allow-Methods"], "POST")
-        self.assertEqual(headers["Access-Control-Allow-Headers"], "Content-Type")
+        self.assertEqual(headers["Access-Control-Allow-Headers"], "Content-Type, Cache-Control, Pragma, Accept, Accept-Language, Content-Language")
         self.assertEqual(headers["Access-Control-Allow-Origin"], "https://starbeef6.github.io")
         self.assertEqual(headers["Vary"], "Origin")
         self.assertNotIn("Access-Control-Allow-Credentials", headers)
