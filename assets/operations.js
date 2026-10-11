@@ -26,6 +26,44 @@
     historyLoading: false,
     historyFailure: null,
   };
+  let publishedContext = null;
+  window.OperationsContext = Object.freeze({ get: () => publishedContext });
+
+  function freezeContext(value) {
+    if (value && typeof value === "object") {
+      Object.values(value).forEach(freezeContext);
+      Object.freeze(value);
+    }
+    return value;
+  }
+
+  function publishContext(data) {
+    const regions = REGIONS.map((region) => {
+      const row = data?.rows.find((item) => item.region === region);
+      const target = targetFor(region);
+      return {
+        region, gmv: finite(row?.gmv), storeDays: finite(row?.storeDays),
+        storeAverage: finite(row?.storeAverage), operatingStores: finite(row?.operatingStores),
+        operatingStoresDate: row?.operatingStoresDate || null,
+        target: { gmv: finite(target.gmv), storeAverage: finite(target.storeAverage), operatingStores: finite(target.operatingStores) },
+      };
+    });
+    const selected = regions.find((row) => row.region === state.region);
+    const forecast = forecastFor(state.region, data);
+    publishedContext = freezeContext({
+      month: state.month, region: state.region, tier: state.tier,
+      loading: state.loading, failure: state.failure,
+      start: data?.start || null, end: data?.end || null, fetchedAt: data?.fetchedAt || null,
+      sourceComplete: data ? !(data.sourceComplete === false || data.sourceCompleteFalse === true || data.source?.complete === false) : null,
+      selected, target: selected?.target || {}, regions,
+      forecast: {
+        available: forecast.available === true, gmv: finite(forecast.gmv),
+        attainment: finite(forecast.attainment), gap: finite(forecast.gap),
+        share: finite(forecast.share), historicalDate: forecast.historicalDate || null,
+      },
+    });
+    window.dispatchEvent(new CustomEvent("operations:context", { detail: publishedContext }));
+  }
 
   function finite(value) {
     if (typeof value !== "number" && typeof value !== "string") return null;
@@ -395,6 +433,7 @@
     $("refresh").disabled = state.loading;
     $("refresh").setAttribute("aria-busy", String(state.loading));
     $("refresh-label").textContent = state.loading ? "正在刷新" : "刷新看板";
+    publishContext(data);
   }
 
   function successStatus(data) {
