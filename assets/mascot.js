@@ -393,6 +393,11 @@
   trigger.addEventListener("click", () => setOpen(!opened));
   $(".xd-minimize").addEventListener("click", () => setOpen(false));
   $(".xd-history").addEventListener("click", () => { if (!busy) showTranscript(); });
+  panel.addEventListener("scroll", () => {
+    // Older browsers may scroll an overflow:hidden ancestor when focusing a
+    // child. Keep the frame fixed; only the conversation is scrollable.
+    if (panel.scrollTop || panel.scrollLeft) { panel.scrollTop = 0; panel.scrollLeft = 0; }
+  }, { passive: true });
   root.addEventListener("keydown", (event) => {
     if (event.key === "Escape" && opened) { event.preventDefault(); setOpen(false); }
   });
