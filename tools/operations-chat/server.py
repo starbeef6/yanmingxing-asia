@@ -30,6 +30,7 @@ MAX_HISTORY = 4
 MAX_OUTPUT = 500
 PER_MINUTE = 12
 PER_DAY = 100
+REGION_NAMES = frozenset({"全国", "北区", "西区", "南区", "四川地区", "江苏地区"})
 POLICY = {
     "model": MODEL,
     "reasoning": {"effort": "low", "mode": "standard"},
@@ -128,8 +129,9 @@ def _clean_row(value):
     allowed = {"region", "gmv", "storeDays", "storeAverage", "operatingStores", "operatingStoresDate", "status"}
     result = {}
     region = value.get("region")
-    if isinstance(region, str) and len(region) <= 30:
-        result["region"] = region
+    if not isinstance(region, str) or len(region) > 30 or region not in REGION_NAMES:
+        return None
+    result["region"] = region
     for key in allowed - {"region", "operatingStoresDate"}:
         if key in value:
             result[key] = _bounded_number(value[key])
@@ -199,6 +201,18 @@ def _clean_diagnosis(value):
         result["sourceComplete"] = value["sourceComplete"]
     if isinstance(value.get("complete"), bool):
         result["complete"] = value["complete"]
+    joint_status = value.get("jointStatus")
+    if isinstance(joint_status, str) and joint_status in {"pass", "warning", "unknown"}:
+        result["jointStatus"] = joint_status
+        result["required"] = 2
+    met_count = value.get("metCount")
+    if isinstance(met_count, int) and not isinstance(met_count, bool) and 0 <= met_count <= 3:
+        result["metCount"] = met_count
+    satisfied_pairs = value.get("satisfiedPairs")
+    if isinstance(satisfied_pairs, list) and len(satisfied_pairs) <= 3:
+        clean_pairs = [item[:100] for item in satisfied_pairs if isinstance(item, str) and item.strip()]
+        if clean_pairs:
+            result["satisfiedPairs"] = clean_pairs
     return result or None
 
 
@@ -219,7 +233,9 @@ def sanitize_context(context, question: str):
         if isinstance(item, str) and len(item) <= 200:
             result[key] = item
     if isinstance(context.get("selected"), dict):
-        result["selected"] = _clean_row(context["selected"])
+        selected = _clean_row(context["selected"])
+        if selected is not None:
+            result["selected"] = selected
     if isinstance(context.get("target"), dict):
         result["target"] = _clean_target(context["target"])
     forecast = context.get("forecast")
@@ -235,10 +251,32 @@ def sanitize_context(context, question: str):
         if isinstance(date, str) and len(date) <= 20:
             clean_forecast["historicalDate"] = date
         result["forecast"] = clean_forecast
-    if re.search(r"五区|五个(?:区|区域|大区)|五大区|各区|各大区|各个区域|所有区域|全部区域|每个区域", question):
-        rows = context.get("regions")
-        if isinstance(rows, list):
-            result["regions"] = [row for row in (_clean_row(item) for item in rows[:6]) if row is not None]
+    rows = context.get("regions")
+    if isinstance(rows, list):
+        clean_rows = []
+        seen_regions = set()
+        for item in rows[:6]:
+            row = _clean_row(item)
+            if row is not None and row["region"] not in seen_regions:
+                clean_rows.append(row)
+                seen_regions.add(row["region"])
+        if clean_rows:
+            result["regions"] = clean_rows
+        # Treat row labels as authoritative and derive availability from the
+        # same bounded rows, rather than forwarding a client claim verbatim.
+        derived_regions = list(dict.fromkeys(row["region"] for row in clean_rows if "region" in row))
+        claimed = context.get("availableRegions")
+        if isinstance(claimed, list) and len(claimed) <= 6 and all(
+                isinstance(item, str) and len(item) <= 30 for item in claimed):
+            result["availableRegions"] = derived_regions
+        elif derived_regions:
+            result["availableRegions"] = derived_regions
+    elif isinstance(context.get("selected"), dict):
+        selected_region = context["selected"].get("region")
+        if isinstance(selected_region, str) and selected_region in REGION_NAMES:
+            result["availableRegions"] = [selected_region]
+    # These describe fixed application capabilities, not client-controlled facts.
+    result["capabilities"] = {"dashboardData": True, "screenAccess": False}
     diagnosis = _clean_diagnosis(context.get("diagnosis"))
     if diagnosis is not None:
         result["diagnosis"] = diagnosis

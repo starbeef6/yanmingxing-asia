@@ -7,6 +7,9 @@
   const numberFormat = new Intl.NumberFormat("zh-CN", { maximumFractionDigits: 2 });
   const percentFormat = new Intl.NumberFormat("zh-CN", { minimumFractionDigits: 1, maximumFractionDigits: 1 });
   const messages = [];
+  let transcriptStorage = null;
+  try { transcriptStorage = window.sessionStorage; } catch (_) {}
+  const transcript = window.OperationsChatSession?.create({ storage: transcriptStorage });
   let context = null;
   let conversationScope = null;
   let opened = false;
@@ -28,6 +31,7 @@
       <header class="xd-header">
         <img class="xd-avatar" alt="" width="46" height="46">
         <div class="xd-brand"><h2>熊大爷<span>现包饺子</span></h2><p class="xd-mode">看板问答</p></div>
+        <button class="xd-history" type="button" aria-label="导出完整聊天记录" title="导出完整聊天记录">记录</button>
         <button class="xd-minimize xd-icon-button" type="button" aria-label="收起对话，让熊大爷回到屏幕边缘">
           <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path d="M6 12h12" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg>
         </button>
@@ -103,6 +107,7 @@
   }
 
   function appendMessage(role, content, options = {}) {
+    if (options.record !== false) transcript?.append({ role, content, scope: options.scope || latestContext(), kind: options.kind || (options.error ? "error" : "conversation") });
     const item = document.createElement("div");
     item.className = `xd-message xd-message-${role}`;
     const speaker = document.createElement("span");
@@ -110,6 +115,12 @@
     speaker.textContent = role === "user" ? "你：" : "熊大爷：";
     const text = document.createElement("p");
     text.textContent = content;
+    if (options.restored && options.scope) {
+      const label = document.createElement("span");
+      label.className = "xd-message-scope";
+      label.textContent = [options.scope.month, options.scope.region, options.scope.tier].filter(Boolean).join(" · ");
+      item.append(label);
+    }
     item.append(speaker, text);
     if (options.error) {
       item.classList.add("xd-message-error");
@@ -125,6 +136,24 @@
     conversation.append(item);
     conversation.scrollTop = conversation.scrollHeight;
     return item;
+  }
+
+  function showTranscript() {
+    if (!transcript) {
+      appendMessage("assistant", "聊天记录组件尚未加载，请重新打开此页面。", { kind: "export" });
+      return;
+    }
+    const count = transcript.entries().length;
+    const text = transcript.exportText();
+    const notice = `已整理本标签页保存的 ${count} 条完整对话原文。不同区域的对话也会保留。${transcript.persisted() ? "刷新后仍会保留。" : "浏览器未允许保存，刷新前请先下载。"}`;
+    const bubble = appendMessage("assistant", notice, { kind: "export" });
+    const download = document.createElement("a");
+    download.className = "xd-download-chat";
+    download.textContent = "下载完整聊天记录";
+    download.href = URL.createObjectURL(new Blob([text], { type: "text/plain;charset=utf-8" }));
+    download.download = `熊大爷聊天记录_${new Date(Date.now() + 8 * 3600000).toISOString().slice(0, 10)}.txt`;
+    bubble.append(download);
+    conversation.scrollTop = conversation.scrollHeight;
   }
 
   function setOpen(value) {
@@ -148,7 +177,7 @@
     ];
     const rows = Array.isArray(current.regions) ? current.regions : [];
     const mentioned = aliases.filter(([alias]) => question.includes(alias)).map(([, region]) => region);
-    const allRegions = /五区|五个(?:区|区域|大区)|五大区|各区|各大区|各个区域|所有区域|全部区域|每个区域/.test(question);
+    const allRegions = /大区|五区|五个(?:区|区域)|各区|各个区域|所有区域|全部区域|每个区域|最下面|下方|底部/.test(question);
     if (allRegions) {
       return rows.filter((row) => row.region !== "全国" || mentioned.includes("全国"));
     }
@@ -277,33 +306,8 @@
     }
   }
 
-  function compactContext(question, current) {
-    if (!current) return {};
-    const asksRegions = /五区|五个(?:区|区域|大区)|五大区|各区|各大区|各个区域|所有区域|全部区域|每个区域/.test(question);
-    const requested = selectionFor(question, current);
-    const rows = requested.length ? requested : asksRegions ? current.regions || [] : [];
-    const compactRow = (row) => {
-      if (!row) return null;
-      const snapshot = { ...current, region: row.region, selected: row, target: row.target, forecast: row.forecast };
-      const result = window.OperationsDiagnosis?.diagnose(snapshot, row);
-      return {
-        region: row.region, gmv: row.gmv, storeDays: row.storeDays, storeAverage: row.storeAverage,
-        operatingStores: row.operatingStores, operatingStoresDate: row.operatingStoresDate,
-        status: row.status, target: row.target, forecast: row.forecast,
-        ...(result ? { diagnosis: {
-          pattern: result.pattern, known: result.known, summary: result.summary,
-          action: result.action, falsifier: result.falsifier, basis: result.basis,
-        } } : {}),
-      };
-    };
-    return {
-      month: current.month, region: current.region, tier: current.tier, start: current.start, end: current.end,
-      loading: current.loading, failure: current.failure, sourceComplete: current.sourceComplete,
-      storeMethod: current.storeMethod, storeDefinition: current.storeDefinition,
-      selected: compactRow(rows.length === 1 ? rows[0] : current.selected), target: rows.length === 1 ? rows[0].target : current.target,
-      forecast: rows.length === 1 ? rows[0].forecast : current.forecast,
-      ...(rows.length > 1 ? { regions: rows.map(compactRow) } : {}),
-    };
+  function compactContext(_question, current) {
+    return window.OperationsChatContext?.compact(current, { diagnosisApi: window.OperationsDiagnosis }) || current || {};
   }
 
   function updateInput() {
@@ -329,6 +333,13 @@
     refreshScope();
     const snapshot = latestContext();
     const scopeKey = `${snapshot?.month || ""}|${snapshot?.region || ""}|${snapshot?.tier || ""}`;
+    if (window.OperationsChatSession?.wantsTranscript(message)) {
+      appendMessage("user", message, { kind: "export", scope: snapshot });
+      input.value = "";
+      updateInput();
+      showTranscript();
+      return;
+    }
     if (retry && retryScope && scopeKey !== retryScope) {
       messages.splice(0, messages.length);
       conversationScope = scopeKey;
@@ -340,13 +351,14 @@
       return;
     }
     if (conversationScope && scopeKey !== conversationScope) messages.splice(0, messages.length);
+    if (!messages.length) messages.push(...(transcript?.recent(snapshot) || []));
     conversationScope = scopeKey;
     if (failedBubble) failedBubble.querySelector(".xd-retry")?.remove();
     failedBubble = null;
     retryMessage = null;
     retryScope = null;
     if (!retry) {
-      appendMessage("user", message);
+      appendMessage("user", message, { scope: snapshot });
       messages.push({ role: "user", content: message });
       input.value = "";
     }
@@ -363,13 +375,15 @@
         appendMessage("assistant", "看板范围已改变，请按当前范围重新提问。");
         return;
       }
-      appendMessage("assistant", answer);
+      appendMessage("assistant", answer, { scope: snapshot });
       messages.push({ role: "assistant", content: answer });
       if (messages.length > 40) messages.splice(0, messages.length - 40);
     } catch (error) {
+      const latest = latestContext();
+      if (`${latest?.month || ""}|${latest?.region || ""}|${latest?.tier || ""}` !== scopeKey) return;
       retryMessage = message;
       retryScope = scopeKey;
-      failedBubble = appendMessage("assistant", error.message || "暂时没有收到回复，请重试。", { error: true });
+      failedBubble = appendMessage("assistant", error.message || "暂时没有收到回复，请重试。", { error: true, scope: snapshot });
     } finally {
       setBusy(false);
       if (opened) input.focus({ preventScroll: true });
@@ -378,6 +392,7 @@
 
   trigger.addEventListener("click", () => setOpen(!opened));
   $(".xd-minimize").addEventListener("click", () => setOpen(false));
+  $(".xd-history").addEventListener("click", () => { if (!busy) showTranscript(); });
   root.addEventListener("keydown", (event) => {
     if (event.key === "Escape" && opened) { event.preventDefault(); setOpen(false); }
   });
@@ -419,5 +434,8 @@
   window.visualViewport?.addEventListener("scroll", fitViewport, { passive: true });
   fitViewport();
   refreshScope();
-  appendMessage("assistant", "我是熊大爷，来陪你看看经营。\n想了解 GMV、店日均，还是在营门店？");
+  const savedMessages = transcript?.entries() || [];
+  if (savedMessages.length) {
+    savedMessages.forEach((entry) => appendMessage(entry.role, entry.content, { record: false, scope: entry.scope, restored: true }));
+  } else appendMessage("assistant", "我是熊大爷，可以聊经营，也可以随便聊聊。", { kind: "welcome" });
 })();

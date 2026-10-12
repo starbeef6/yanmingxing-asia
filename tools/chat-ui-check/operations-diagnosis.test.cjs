@@ -23,12 +23,34 @@ for (const pattern of ["000", "001", "010", "011", "100", "101", "110", "111"]) 
   const result = diagnosis.diagnose(context(pattern));
   assert.equal(result.pattern, pattern, `pattern ${pattern}`);
   assert.equal(result.known.filter((value) => value !== null).length, 3, `all three values known for ${pattern}`);
+  const metCount = [...pattern].filter((bit) => bit === "1").length;
+  assert.equal(result.metCount, metCount, `met count ${pattern}`);
+  assert.equal(result.required, 2, `2-of-3 threshold ${pattern}`);
+  assert.equal(result.jointStatus, metCount >= 2 ? "pass" : "warning", `joint result ${pattern}`);
+  assert.equal(result.satisfiedPairs.length, metCount < 2 ? 0 : metCount * (metCount - 1) / 2, `achieved pairs ${pattern}`);
+  if (metCount >= 2) assert.match(result.summary, /组合通过/);
+  else assert.match(result.summary, /预警/);
+  assert.doesNotMatch(result.summary, /不能抵消第三项/);
+  if (pattern === "110") assert.match(result.summary, /在营门店实际80家、目标100家，距目标差20家/);
+  if (pattern === "111") assert.equal(result.falsifier, "同口径复核后，达标数量降到2项以下，当前组合通过结论即被推翻。");
   assert.ok(result.summary.length > 20);
 }
 
+const oneMetTwoUnknown = context("100");
+oneMetTwoUnknown.selected.target.storeAverage = 0;
+oneMetTwoUnknown.selected.target.operatingStores = null;
+assert.equal(diagnosis.diagnose(oneMetTwoUnknown).jointStatus, "unknown");
+
+const zeroMetOneUnknown = context("000");
+zeroMetOneUnknown.selected.target.operatingStores = null;
+assert.equal(diagnosis.diagnose(zeroMetOneUnknown).jointStatus, "warning");
+
 const missing = context("111");
 missing.selected.target.storeAverage = null;
-assert.equal(diagnosis.diagnose(missing).pattern, "1?1");
+const missingResult = diagnosis.diagnose(missing);
+assert.equal(missingResult.pattern, "1?1");
+assert.equal(missingResult.jointStatus, "pass");
+assert.match(missingResult.summary, /组合通过/);
 
 const zeroTarget = context("111");
 zeroTarget.selected.target.gmv = 0;
@@ -55,7 +77,7 @@ const midMonth = context("000", { end: "2026-10-12", forecast: { available: fals
 const unknownForecast = diagnosis.diagnose(midMonth);
 assert.equal(unknownForecast.metrics, undefined);
 assert.equal(unknownForecast.pattern, "?0?");
-assert.match(unknownForecast.summary, /不能判定|尚不能/);
+assert.match(unknownForecast.summary, /待判定/);
 
 const forecastContext = context("000", {
   end: "2026-10-12", forecast: { available: true, gmv: 120, historicalDate: "2025-10-12" },

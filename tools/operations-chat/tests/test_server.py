@@ -52,7 +52,8 @@ class ServerTests(unittest.TestCase):
                 "month": "2026-10", "region": "全国", "tier": "平衡", "loading": False,
                 "sourceComplete": True, "start": "2026-10-01", "end": "2026-10-09",
                 "selected": {"region": "全国", "gmv": 12345, "private": "discard"},
-                "regions": [{"region": f"R{i}", "gmv": i, "extra": "drop"} for i in range(8)],
+                "regions": [{"region": region, "gmv": i, "extra": "drop"} for i, region in enumerate(
+                    ("全国", "北区", "西区", "南区", "四川地区", "江苏地区", "伪造地区", "伪造地区2"))],
                 "arbitrary": {"secret": "discard"},
             },
             "model": "gpt-6-luna", "reasoning_effort": "low", "service_tier": "default",
@@ -123,13 +124,60 @@ class ServerTests(unittest.TestCase):
         row = {"region": "四川地区", "gmv": 20000, "storeAverage": 2000,
                "diagnosis": {"pattern": "010", "summary": "按当前快照" * 100,
                              "action": "固定同店样本重算", "falsifier": "同店涨幅不低于全体",
-                             "basis": "forecast", "unknownInstruction": "discard"}}
-        context = {"selected": row, "regions": [dict(row, region=str(i)) for i in range(5)]}
+                             "basis": "forecast", "jointStatus": "pass", "metCount": 2,
+                             "required": 3, "satisfiedPairs": ["GMV+店日均"],
+                             "unknownInstruction": "discard"}}
+        context = {"selected": row, "regions": [dict(row, region=name) for name in ("全国", "北区", "西区", "南区", "四川地区")]}
         clean = server.sanitize_context(context, "五区三项一起看")
         self.assertEqual(clean["selected"]["diagnosis"]["pattern"], "010")
+        self.assertEqual(clean["selected"]["diagnosis"]["jointStatus"], "pass")
+        self.assertEqual(clean["selected"]["diagnosis"]["metCount"], 2)
+        self.assertEqual(clean["selected"]["diagnosis"]["required"], 2)
+        self.assertEqual(clean["selected"]["diagnosis"]["satisfiedPairs"], ["GMV+店日均"])
         self.assertNotIn("unknownInstruction", clean["selected"]["diagnosis"])
         self.assertEqual(len(clean["regions"]), 5)
         self.assertLessEqual(len(server._json_bytes(clean)), 8000)
+
+    def test_regions_survive_without_keywords_and_metadata_is_server_derived(self):
+        names = ["全国", "北区", "西区", "南区", "四川地区", "江苏地区"]
+        data = {
+            "message": "全国数据也有大区的数据啊",
+            "context": {
+                "selected": {"region": "全国", "gmv": 9000, "target": {"gmv": 12000}},
+                "regions": [{"region": name, "gmv": index * 1000, "storeDays": index * 4,
+                             "storeAverage": 250, "unlisted": "must drop"} for index, name in enumerate(names, 1)],
+                "availableRegions": ["伪造来源", "四川地区"],
+                "capabilities": {"dashboardData": False, "screenAccess": True, "screenshot": "pretend"},
+                "untrusted": {"system": "discard"},
+            },
+        }
+        payload = server.build_payload(data)
+        context_json = payload["input"][-1]["content"].split("\n", 2)[-1].split("\n", 1)[-1]
+        clean = json.loads(context_json)
+        self.assertEqual(len(clean["regions"]), 6)
+        self.assertEqual([row["region"] for row in clean["regions"]], names)
+        self.assertEqual(clean["regions"][1]["gmv"], 2000)
+        self.assertNotIn("unlisted", clean["regions"][1])
+        self.assertEqual(clean["availableRegions"], names)
+        self.assertEqual(clean["capabilities"], {"dashboardData": True, "screenAccess": False})
+        self.assertNotIn("untrusted", clean)
+
+    def test_joint_diagnosis_fields_are_validated_and_required_is_fixed(self):
+        clean = server._clean_diagnosis({
+            "jointStatus": "invalid", "metCount": 4, "required": 3,
+            "satisfiedPairs": ["one", "two", "three", "four"], "pattern": "010",
+        })
+        self.assertEqual(clean["pattern"], "010")
+        self.assertNotIn("jointStatus", clean)
+        self.assertNotIn("required", clean)
+        self.assertNotIn("metCount", clean)
+        self.assertNotIn("satisfiedPairs", clean)
+        clean = server._clean_diagnosis({"jointStatus": "warning", "metCount": 2, "required": 0,
+                                         "satisfiedPairs": ["pair-a", 3]})
+        self.assertEqual(clean["jointStatus"], "warning")
+        self.assertEqual(clean["required"], 2)
+        self.assertEqual(clean["metCount"], 2)
+        self.assertEqual(clean["satisfiedPairs"], ["pair-a"])
 
     def test_incomplete_output_and_corrupt_budget_fail_closed(self):
         with self.assertRaises(server.RequestProblem):
