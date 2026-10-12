@@ -62,6 +62,21 @@ assert.equal(compact.start, '2026-10-01');
 assert.equal(compact.end, '2026-10-11');
 assert.ok(Buffer.byteLength(JSON.stringify(compact)) < 6000, 'realistic compact fixture stays below 6 KB');
 
+const actualDiagnosis = require('../../assets/operations-diagnosis.js');
+const regionalInput = {
+  ...current, start: '2026-10-01', end: '2026-10-31', sourceComplete: true,
+  storeMethod: 'monthly-positive-gmv-status-1-2-distinct-store-count',
+  regions: [
+    { region: '北区', gmv: 80, storeAverage: 12, storeDays: 80 / 12, operatingStores: 80, operatingStoresDate: '2026-10-31', target: { gmv: 100, storeAverage: 10, operatingStores: 100 } },
+    { region: '江苏地区', gmv: 120, storeAverage: 8, storeDays: 15, operatingStores: 120, operatingStoresDate: '2026-10-31', target: { gmv: 100, storeAverage: 10, operatingStores: 100 } },
+  ],
+};
+const regional = api.compact(regionalInput, { diagnosisApi: actualDiagnosis });
+assert.equal(regional.regions[0].diagnosis.pattern, '010');
+assert.equal(regional.regions[0].diagnosis.jointStatus, 'warning');
+assert.equal(regional.regions[1].diagnosis.pattern, '101');
+assert.equal(regional.regions[1].diagnosis.jointStatus, 'pass');
+
 const sparse = api.compact({ month: '2026-10', tier: '平衡', region: '全国', start: '2026-10-01', end: null, selected: null, regions: [{ region: '北区', gmv: null, target: null }] });
 assert.deepEqual(Array.from(sparse.availableRegions), []);
 assert.equal(sparse.regions[0].gmv, null);

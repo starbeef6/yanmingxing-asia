@@ -78,6 +78,16 @@
     // OperationsContext may include a nationwide summary row; this list is only the five areas.
     const areaRows = sourceRows.filter((row) => row && AREA_NAMES.has(row.region));
     const regions = areaRows.map(compactRow);
+    if (typeof diagnosisApi?.diagnose === "function") {
+      regions.forEach((row, index) => {
+        const source = areaRows[index];
+        const result = diagnosisApi.diagnose({ ...context, region: source.region, selected: source, target: source.target, forecast: source.forecast }, source);
+        row.diagnosis = {
+          pattern: result.pattern, basis: result.basis, jointStatus: result.jointStatus,
+          metCount: result.metCount, required: 2, satisfiedPairs: result.satisfiedPairs,
+        };
+      });
+    }
     const availableRegions = regions
       .filter((row) => NUMBER_FIELDS.some((field) => row[field] !== null))
       .map((row) => row.region);
