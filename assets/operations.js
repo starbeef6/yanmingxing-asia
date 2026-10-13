@@ -241,12 +241,15 @@
     return months;
   }
 
-  async function loadFallbackTargets() {
+  async function loadFallbackTargets(requestId, signal) {
     try {
-      const response = await fetch("../assets/operations-targets.json?v=20261011-monthly-stores", { headers: { Accept: "application/json" } });
+      const url = new URL("../assets/operations-targets.json?v=20261013-target-update", window.location.href);
+      url.searchParams.set("refresh", `${Date.now()}-${requestId}`);
+      const response = await fetch(url.href, { cache: "no-store", headers: { Accept: "application/json" }, signal });
       if (!response.ok) return;
-      state.fallbackTargets = validateFallbackTargets(await response.json());
-      render();
+      const targets = validateFallbackTargets(await response.json());
+      if (requestId !== state.requestId) return;
+      state.fallbackTargets = targets;
     } catch (_) {
       // Actual values and query status remain independent of static target availability.
     }
@@ -480,6 +483,7 @@
     setStatus("loading", "正在读取最新同步", state.data ? "正在刷新最近同步的本月结果…" : "正在读取所选月份的数据…");
     render();
     const timeout = setTimeout(() => controller.abort(), 30000);
+    const targetsRequest = loadFallbackTargets(requestId, controller.signal);
     try {
       const response = await fetch(snapshotUrl(requestedMonth, requestId), {
         method: "GET", cache: "no-store", credentials: "same-origin", headers: { Accept: "application/json" }, signal: controller.signal,
@@ -488,6 +492,7 @@
         throw new Error(response.status === 404 ? "本月同步文件尚未就绪，请稍后刷新。" : "本次同步结果暂时无法读取，请稍后刷新。");
       }
       const payload = validateData(await response.json(), requestedMonth);
+      await targetsRequest;
       if (requestId !== state.requestId || requestedMonth !== state.month) return;
       state.data = payload;
       state.failure = null;
@@ -500,6 +505,7 @@
       const retained = state.data?.month === requestedMonth;
       setStatus("error", retained ? "刷新未完成 · 保留上次结果" : "数据暂不可用", reason + (retained ? " 当前仍显示上次成功取数结果。" : " 当前未显示实际值。"));
     } finally {
+      await targetsRequest;
       clearTimeout(timeout);
       if (requestId === state.requestId) {
         state.loading = false;
@@ -535,6 +541,5 @@
   $("refresh").addEventListener("click", refresh);
   render();
   saveSelection();
-  loadFallbackTargets();
   refresh();
 })();
