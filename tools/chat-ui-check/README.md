@@ -19,4 +19,4 @@ python3 -m unittest discover -s tools/operations-chat-cloud/tests
 
 服务端故障注入覆盖领取响应、开始确认、结果上报丢包及恢复；同一任务只能调用后端一次，已有结果只补交。协议兼容升级须先部署 Cloud Run，再重启本机 worker，保留原通信凭据。Cloud Run 实例丢失内存状态或 Mac 关机仍需重新提问，不能宣称所有故障都可无损恢复。
 
-仓库的 `Chat regression checks` 工作流会在相关源码变更时运行相同测试，不接触真实模型或凭据。发布者必须检查该工作流成功及公网真实回复；当前 Pages 仍使用原发布方式，这项检查本身不会阻止 Pages 构建。
+本机 Git 的 `pre-push` 钩子已接入 `python3 tools/chat-ui-check/run-checks.py`，正常推送前自动运行上述离线检查，失败则终止本次推送。不会调用模型或读取凭据。该钩子位于本机共享 Git 目录，不是 GitHub 服务端限制；其他电脑推送不受它保护。当前登录没有新增 GitHub 工作流所需的权限，因此没有更改账号权限或 Pages 发布方式。发布后仍必须在公网实际取得回复。
