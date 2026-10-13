@@ -18,6 +18,9 @@
   let retryMessage = null;
   let retryScope = null;
   let failedBubble = null;
+  let serviceState = "unknown";
+  let serviceCheckedAt = 0;
+  let statusPromise = null;
 
   const root = document.createElement("aside");
   root.id = "xiong-daye-widget";
@@ -98,12 +101,70 @@
     }
   }
 
+  function statusEndpoint(endpoint) {
+    try {
+      const target = new URL(endpoint);
+      const loopback = ["localhost", "127.0.0.1", "[::1]"].includes(target.hostname);
+      const candidate = window.XiongDayeChat?.statusEndpoint || new URL(loopback ? "/healthz" : "/api/status", target).href;
+      const url = new URL(candidate, location.href);
+      return url.origin === target.origin && !url.username && !url.password
+        && ["/api/status", "/healthz"].includes(url.pathname) ? url.href : null;
+    } catch (_) { return null; }
+  }
+
+  function renderServiceState() {
+    const endpoint = configuredEndpoint();
+    const labels = { unknown: "连接待检查", checking: "检查连接中", ready: "在线对话", offline: "服务未连接", unreachable: "连接暂不可用" };
+    $(".xd-mode").textContent = endpoint === null ? "看板问答" : labels[serviceState];
+    $(".xd-status").textContent = busy
+      ? serviceState === "checking" ? "正在连接…" : "正在回复…"
+      : serviceState === "offline" || serviceState === "unreachable"
+        ? retryMessage ? "连接恢复后可重试，原提问已保留" : "当前未连上对话服务" : "";
+  }
+
+  async function checkService(force = false) {
+    const endpoint = configuredEndpoint();
+    if (endpoint === null) return true;
+    const url = endpoint && statusEndpoint(endpoint);
+    if (!url || window.navigator?.onLine === false) {
+      serviceState = "offline";
+      renderServiceState();
+      return false;
+    }
+    if (statusPromise) return statusPromise;
+    if (!force && Date.now() - serviceCheckedAt < 15000) return serviceState === "ready";
+    serviceState = "checking";
+    renderServiceState();
+    const statusController = new AbortController();
+    const timeout = setTimeout(() => statusController.abort(), 8000);
+    statusPromise = (async () => {
+      try {
+        const response = await fetch(url, { method: "GET", credentials: "omit", cache: "no-store", redirect: "error",
+          referrerPolicy: "no-referrer", headers: { Accept: "application/json" }, signal: statusController.signal });
+        if (!response.ok || !/application\/json/i.test(response.headers.get("content-type") || "")) throw new Error("status unavailable");
+        const raw = await response.text();
+        if (raw.length > 16384) throw new Error("status unavailable");
+        const status = JSON.parse(raw);
+        serviceState = status.ready === true ? "ready" : "offline";
+      } catch (_) {
+        serviceState = "unreachable";
+      } finally {
+        clearTimeout(timeout);
+        serviceCheckedAt = Date.now();
+        statusPromise = null;
+        renderServiceState();
+      }
+      return serviceState === "ready";
+    })();
+    return statusPromise;
+  }
+
   function refreshScope() {
     context = latestContext();
     const parts = [context?.month, context?.region, context?.tier ? `${context.tier}目标` : null].filter(Boolean);
     if (context?.end) parts.push(`截至 ${context.end.slice(5).replace("-", "/")}`);
     $(".xd-scope").textContent = parts.length ? parts.join(" · ") : "跟随当前看板";
-    $(".xd-mode").textContent = configuredEndpoint() ? "在线对话" : "看板问答";
+    renderServiceState();
   }
 
   function appendMessage(role, content, options = {}) {
@@ -164,7 +225,10 @@
     panel.hidden = !value;
     if (value) {
       refreshScope();
-      requestAnimationFrame(() => input.focus({ preventScroll: true }));
+      checkService(true);
+      // Opening the companion must not unexpectedly summon Safari's keyboard
+      // or auto-zoom. Touch users focus the visible composer explicitly.
+      if (window.matchMedia?.("(pointer: fine)").matches) requestAnimationFrame(() => input.focus({ preventScroll: true }));
     } else {
       trigger.focus({ preventScroll: true });
     }
@@ -279,6 +343,9 @@
 
   async function remoteAnswer(question, current, endpoint) {
     if (endpoint === false) throw new Error("对话服务地址未配置正确，请稍后再试。");
+    if (!await checkService(serviceState !== "ready")) {
+      throw new Error(serviceState === "offline" ? "对话服务暂未连接，原提问已保留；连接恢复后点重试。" : "当前无法连上对话服务，原提问已保留；请检查网络后重试。");
+    }
     controller = new AbortController();
     const timeoutMs = window.XiongDayeChat?.timeoutMs === 75000 ? 75000 : 45000;
     const timeout = setTimeout(() => controller.abort(), timeoutMs);
@@ -290,6 +357,7 @@
         signal: controller.signal,
       });
       if (!response.ok) {
+        if (response.status === 503) { serviceState = "offline"; serviceCheckedAt = 0; }
         const errors = {
           429: "熊大爷正在处理其他对话，请稍后重试。",
           503: "聊天服务暂未连接，请稍后重试。",
@@ -303,10 +371,16 @@
       const payload = JSON.parse(responseText);
       const reply = typeof payload.reply === "string" ? payload.reply : payload.message;
       if (typeof reply !== "string" || !reply.trim() || reply.length > 8000) throw new Error("暂时没有收到有效回复，请重试。");
+      serviceState = "ready";
+      serviceCheckedAt = Date.now();
       return reply.trim();
     } catch (error) {
       if (error.name === "AbortError") throw new Error(`回复等待超过 ${timeoutMs / 1000} 秒，请重试。`);
-      if (error instanceof TypeError || error instanceof SyntaxError) throw new Error("暂时连接不上对话服务，请重试。");
+      if (error instanceof TypeError || error instanceof SyntaxError) {
+        serviceState = "unreachable";
+        serviceCheckedAt = 0;
+        throw new Error("暂时连接不上对话服务，原提问已保留；请重试。");
+      }
       throw error;
     } finally {
       clearTimeout(timeout);
@@ -330,7 +404,7 @@
     root.classList.toggle("xd-busy", value);
     $(".xd-form").setAttribute("aria-busy", String(value));
     root.querySelectorAll(".xd-suggestions button, .xd-retry").forEach((button) => { button.disabled = value; });
-    $(".xd-status").textContent = value ? "正在回复…" : "";
+    renderServiceState();
     updateInput();
   }
 
@@ -361,8 +435,9 @@
     if (conversationScope && scopeKey !== conversationScope) messages.splice(0, messages.length);
     if (!messages.length) messages.push(...(transcript?.recent(snapshot) || []));
     conversationScope = scopeKey;
-    if (failedBubble) failedBubble.querySelector(".xd-retry")?.remove();
-    failedBubble = null;
+    const retryingBubble = retry ? failedBubble : null;
+    if (failedBubble && !retry) failedBubble.querySelector(".xd-retry")?.remove();
+    failedBubble = retryingBubble;
     retryMessage = null;
     retryScope = null;
     if (!retry) {
@@ -384,6 +459,8 @@
         return;
       }
       appendMessage("assistant", answer, { scope: snapshot });
+      retryingBubble?.remove();
+      failedBubble = null;
       messages.push({ role: "assistant", content: answer });
       if (messages.length > 40) messages.splice(0, messages.length - 40);
     } catch (error) {
@@ -391,10 +468,15 @@
       if (`${latest?.month || ""}|${latest?.region || ""}|${latest?.tier || ""}` !== scopeKey) return;
       retryMessage = message;
       retryScope = scopeKey;
-      failedBubble = appendMessage("assistant", error.message || "暂时没有收到回复，请重试。", { error: true, scope: snapshot });
+      const notice = error.message || "暂时没有收到回复，请重试。";
+      if (retryingBubble) {
+        retryingBubble.querySelector("p").textContent = notice;
+        transcript?.append({ role: "assistant", content: notice, scope: snapshot, kind: "error" });
+        failedBubble = retryingBubble;
+      } else failedBubble = appendMessage("assistant", notice, { error: true, scope: snapshot });
     } finally {
       setBusy(false);
-      if (opened) input.focus({ preventScroll: true });
+      if (opened && window.matchMedia?.("(pointer: fine)").matches) input.focus({ preventScroll: true });
     }
   }
 
@@ -437,14 +519,22 @@
     const wasAtBottom = conversation.scrollHeight - conversation.scrollTop - conversation.clientHeight < 48;
     const viewport = window.visualViewport;
     const height = viewport?.height || window.innerHeight;
+    const width = viewport?.width || window.innerWidth;
     root.classList.toggle("xd-compact", height < 460);
     root.style.setProperty("--xd-viewport-height", `${height}px`);
-    root.style.setProperty("--xd-bottom-offset", `${viewport ? Math.max(0, window.innerHeight - viewport.height - viewport.offsetTop) : 0}px`);
+    root.style.setProperty("--xd-viewport-width", `${width}px`);
+    root.style.setProperty("--xd-viewport-left", `${Math.max(0, viewport?.offsetLeft || 0)}px`);
+    root.style.setProperty("--xd-viewport-top", `${Math.max(0, viewport?.offsetTop || 0)}px`);
     if (opened && wasAtBottom) requestAnimationFrame(() => { conversation.scrollTop = conversation.scrollHeight; });
   }
   window.addEventListener("resize", fitViewport, { passive: true });
   window.visualViewport?.addEventListener("resize", fitViewport, { passive: true });
   window.visualViewport?.addEventListener("scroll", fitViewport, { passive: true });
+  window.addEventListener("online", () => { if (opened) checkService(true); });
+  window.addEventListener("offline", () => { serviceState = "offline"; serviceCheckedAt = 0; renderServiceState(); });
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "visible") { fitViewport(); if (opened) checkService(true); }
+  });
   fitViewport();
   refreshScope();
   const savedMessages = transcript?.entries() || [];

@@ -8,9 +8,11 @@ Run this service with one Cloud Run instance so the ephemeral queue is coherent.
 from __future__ import annotations
 
 import datetime as dt
+from collections import OrderedDict
 import hmac
 import json
 import os
+import re
 import threading
 import time
 import uuid
@@ -29,6 +31,8 @@ JOB_TIMEOUT = 70
 HEARTBEAT_TIMEOUT = 60
 PER_MINUTE = 12
 PER_DAY = 100
+RESULT_TTL = 180
+MAX_CACHED_RESULTS = 32
 POLICY = {
     "model": "gpt-6-luna",
     "reasoning": {"effort": "low", "mode": "standard"},
@@ -55,6 +59,15 @@ ERRORS = {
 
 def json_bytes(value):
     return json.dumps(value, ensure_ascii=False, separators=(",", ":"), allow_nan=False).encode("utf-8")
+
+
+def diagnostic(code):
+    timestamp = dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds")
+    print(timestamp + " operations cloud relay: " + code, flush=True)
+
+
+def valid_worker_id(value):
+    return isinstance(value, str) and re.fullmatch(r"[A-Za-z0-9_-]{1,100}", value) is not None
 
 
 def _valid_policy(value):
@@ -147,6 +160,7 @@ class RelayState:
         self.daily_date = None
         self.daily_count = 0
         self.minute_stamps = []
+        self.completed = OrderedDict()
 
     def authenticated(self, authorization):
         if not self.worker_token or not isinstance(authorization, str) or not authorization.startswith("Bearer "):
@@ -161,11 +175,15 @@ class RelayState:
             return self._ready(time.monotonic())
 
     def _expire(self, now):
+        for identifier, (completed_at, _owner) in list(self.completed.items()):
+            if now - completed_at >= RESULT_TTL:
+                self.completed.pop(identifier, None)
         if self.active and now >= self.active["deadline"]:
             expired = self.active
             self.active = None
             expired["result"] = (504, {"error": ERRORS[504]})
             expired["event"].set()
+            diagnostic("job_expired")
 
     def enqueue(self, payload):
         with self.lock:
@@ -185,31 +203,66 @@ class RelayState:
             self.minute_stamps.append(now)
             job = {
                 "id": uuid.uuid4().hex, "payload": payload, "deadline": now + self.job_timeout,
-                "claimed": False, "event": threading.Event(), "result": None,
+                "claimed": False, "owner": None, "protocol": 1,
+                "event": threading.Event(), "result": None,
             }
             self.active = job
             return 200, job
 
-    def pull(self):
+    def pull(self, *, protocol=1, worker_id=None):
         with self.lock:
             now = time.monotonic()
             self.last_heartbeat = now
             self._expire(now)
             if self.active is None or self.active["claimed"]:
                 return {"job": None}
+            if protocol == 2:
+                if not valid_worker_id(worker_id):
+                    raise ValueError
+                if self.active["owner"] not in (None, worker_id):
+                    return {"job": None}
+                self.active["owner"] = worker_id
+                self.active["protocol"] = 2
+                # Delivery is repeatable until this same worker acknowledges
+                # start. No lease may hand an already-started model call away.
+                return {"job": {"id": self.active["id"], "payload": self.active["payload"], "requires_start": True}}
+            if self.active["owner"] is not None:
+                return {"job": None}
             self.active["claimed"] = True
             return {"job": {"id": self.active["id"], "payload": self.active["payload"]}}
 
-    def complete(self, identifier, result):
+    def start(self, identifier, worker_id):
         with self.lock:
             now = time.monotonic()
             self.last_heartbeat = now
             self._expire(now)
+            if (not self.active or self.active["id"] != identifier
+                    or self.active["protocol"] != 2 or self.active["owner"] != worker_id):
+                return False
+            if not self.active["claimed"]:
+                self.active["claimed"] = True
+                diagnostic("job_started")
+            return True
+
+    def complete(self, identifier, result, worker_id=None):
+        with self.lock:
+            now = time.monotonic()
+            self.last_heartbeat = now
+            self._expire(now)
+            saved = self.completed.get(identifier)
+            if saved is not None:
+                return saved[1] == worker_id
             if not self.active or not self.active["claimed"] or identifier != self.active["id"]:
                 return False
+            if self.active["protocol"] == 2 and self.active["owner"] != worker_id:
+                return False
             job, self.active = self.active, None
+            self.completed[identifier] = (now, job["owner"])
+            while len(self.completed) > MAX_CACHED_RESULTS:
+                self.completed.popitem(last=False)
             job["result"] = result
             job["event"].set()
+            diagnostic("job_completed")
             return True
 
     def wait(self, job):
@@ -295,7 +348,7 @@ class RelayHandler(BaseHTTPRequestHandler):
     def do_POST(self):
         path = urlsplit(self.path).path
         origin = self.headers.get("Origin")
-        if path in {"/internal/pull", "/internal/complete"}:
+        if path in {"/internal/pull", "/internal/start", "/internal/complete"}:
             if origin is not None or not self.server.relay.authenticated(self.headers.get("Authorization")):
                 self._send(403, {"error": "请求来源无效。"})
                 return
@@ -304,14 +357,27 @@ class RelayHandler(BaseHTTPRequestHandler):
                 self._send(status, {"error": ERRORS[status]})
                 return
             if path == "/internal/pull":
-                self._send(200, self.server.relay.pull())
+                protocol = payload.get("protocol", 1)
+                owner = payload.get("worker_id")
+                if type(protocol) is not int or protocol not in (1, 2) or (protocol == 2 and not valid_worker_id(owner)):
+                    self._send(400, {"error": ERRORS[400]})
+                    return
+                self._send(200, self.server.relay.pull(protocol=protocol, worker_id=owner))
                 return
             try:
                 identifier = payload.get("id")
                 if not isinstance(identifier, str) or len(identifier) != 32:
                     raise ValueError
-                result = clean_result(payload.get("status"), payload.get("body"))
-                accepted = self.server.relay.complete(identifier, result)
+                owner = payload.get("worker_id")
+                if owner is not None and not valid_worker_id(owner):
+                    raise ValueError
+                if path == "/internal/start":
+                    if owner is None:
+                        raise ValueError
+                    accepted = self.server.relay.start(identifier, owner)
+                else:
+                    result = clean_result(payload.get("status"), payload.get("body"))
+                    accepted = self.server.relay.complete(identifier, result, owner)
             except ValueError:
                 self._send(400, {"error": ERRORS[400]})
                 return

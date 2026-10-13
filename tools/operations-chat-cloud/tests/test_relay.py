@@ -6,6 +6,7 @@ from pathlib import Path
 import threading
 import time
 import unittest
+from unittest.mock import patch
 
 
 SPEC = importlib.util.spec_from_file_location("operations_cloud_relay", Path(__file__).resolve().parents[1] / "server.py")
@@ -120,6 +121,31 @@ class RelayHTTPTests(unittest.TestCase):
         self.server.relay.worker_token = ""
         self.assertEqual(self.internal("/internal/pull")[0], 403)
 
+    def test_protocol_two_http_requires_start_and_preserves_auth_boundary(self):
+        owner = "test-worker-session"
+        self.assertEqual(self.internal("/internal/pull", {"protocol": 2, "worker_id": owner})[2], {"job": None})
+        future = self.pool.submit(self.send, "POST", "/api/chat", {"message": "fictional protocol test"}, ORIGIN)
+        for _ in range(30):
+            delivered = self.internal("/internal/pull", {"protocol": 2, "worker_id": owner})[2]["job"]
+            if delivered:
+                break
+            time.sleep(0.003)
+        self.assertIsNotNone(delivered)
+        self.assertTrue(delivered["requires_start"])
+        self.assertEqual(self.complete(delivered)[2], {"accepted": False})
+        acknowledgment = {"id": delivered["id"], "worker_id": owner}
+        self.assertEqual(self.send("POST", "/internal/start", acknowledgment)[0], 403)
+        self.assertEqual(self.internal("/internal/start", acknowledgment, origin=ORIGIN)[0], 403)
+        self.assertEqual(self.internal("/internal/start", acknowledgment)[2], {"accepted": True})
+        self.assertEqual(self.internal("/internal/start", acknowledgment)[2], {"accepted": True})
+        self.assertEqual(self.complete(delivered, worker_id=owner)[2], {"accepted": True})
+        self.assertEqual(future.result(timeout=2)[0], 200)
+
+    def test_invalid_delivery_protocol_is_rejected_without_refreshing_heartbeat(self):
+        for payload in ({"protocol": True}, {"protocol": 3}, {"protocol": 2}, {"protocol": 2, "worker_id": "../bad"}):
+            self.assertEqual(self.internal("/internal/pull", payload)[0], 400)
+            self.assertIsNone(self.server.relay.last_heartbeat)
+
     def test_one_queued_or_inflight_job(self):
         self.online()
         future, job = self.start_job()
@@ -179,6 +205,63 @@ class RelayHTTPTests(unittest.TestCase):
         self.server.relay.daily_date = relay.dt.datetime.now(relay.dt.timezone(relay.dt.timedelta(hours=8))).date().isoformat()
         self.server.relay.daily_count = relay.PER_DAY
         self.assertEqual(self.send("POST", "/api/chat", {"message": "你好"}, ORIGIN)[0], 429)
+
+
+class DeliveryRecoveryTests(unittest.TestCase):
+    def setUp(self):
+        self.state = relay.RelayState(TOKEN, job_timeout=0.35)
+        self.owner = "worker-session-a"
+        self.state.pull(protocol=2, worker_id=self.owner)
+        self.status, self.job = self.state.enqueue(relay.clean_request({"message": "fictional test"}))
+        self.result = (200, {"reply": "test reply", "policy": relay.POLICY, "usage": {}})
+
+    def test_lost_pull_response_redelivers_only_to_same_session_before_start(self):
+        first = self.state.pull(protocol=2, worker_id=self.owner)
+        self.assertEqual(first["job"]["id"], self.job["id"])
+        repeated = self.state.pull(protocol=2, worker_id=self.owner)
+        self.assertEqual(repeated, first)
+        self.assertEqual(self.state.pull(protocol=2, worker_id="another-session"), {"job": None})
+        self.assertEqual(self.state.pull(), {"job": None})
+
+    def test_start_ack_loss_is_idempotent_but_never_reissues_started_job(self):
+        self.state.pull(protocol=2, worker_id=self.owner)
+        self.assertTrue(self.state.start(self.job["id"], self.owner))
+        self.assertTrue(self.state.start(self.job["id"], self.owner))
+        self.assertFalse(self.state.start(self.job["id"], "another-session"))
+        self.assertEqual(self.state.pull(protocol=2, worker_id=self.owner), {"job": None})
+        self.assertFalse(self.state.complete(self.job["id"], self.result, "another-session"))
+        self.assertTrue(self.state.complete(self.job["id"], self.result, self.owner))
+
+    def test_completion_ack_loss_reaccepts_same_owner_without_duplicate_delivery(self):
+        self.state.pull(protocol=2, worker_id=self.owner)
+        self.state.start(self.job["id"], self.owner)
+        self.assertTrue(self.state.complete(self.job["id"], self.result, self.owner))
+        self.assertTrue(self.state.complete(self.job["id"], self.result, self.owner))
+        self.assertFalse(self.state.complete(self.job["id"], self.result, "another-session"))
+        self.assertEqual(self.state.wait(self.job), self.result)
+
+    def test_delivery_retries_do_not_extend_deadline(self):
+        self.state.pull(protocol=2, worker_id=self.owner)
+        deadline = self.job["deadline"]
+        self.state.pull(protocol=2, worker_id=self.owner)
+        self.assertEqual(self.job["deadline"], deadline)
+        with patch.object(relay.time, "monotonic", return_value=deadline + 1):
+            self.assertFalse(self.state.start(self.job["id"], self.owner))
+        self.assertEqual(self.state.wait(self.job)[0], 504)
+
+    def test_completion_ack_cache_remains_bounded_and_expires(self):
+        for _ in range(relay.MAX_CACHED_RESULTS + 2):
+            self.state.pull(protocol=2, worker_id=self.owner)
+            if self.state.active is None:
+                self.state.minute_stamps = []
+                _status, self.job = self.state.enqueue(relay.clean_request({"message": "test"}))
+                self.state.pull(protocol=2, worker_id=self.owner)
+            self.state.start(self.job["id"], self.owner)
+            self.state.complete(self.job["id"], self.result, self.owner)
+        self.assertEqual(len(self.state.completed), relay.MAX_CACHED_RESULTS)
+        with patch.object(relay.time, "monotonic", return_value=time.monotonic() + relay.RESULT_TTL + 1):
+            self.assertFalse(self.state.complete(self.job["id"], self.result, self.owner))
+        self.assertEqual(len(self.state.completed), 0)
 
 
 if __name__ == "__main__":

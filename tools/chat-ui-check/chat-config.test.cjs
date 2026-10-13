@@ -17,6 +17,7 @@ function load(origin, existing) {
 for (const origin of ['http://127.0.0.1:8786', 'http://localhost:8786']) {
   const config = load(origin);
   assert.equal(config.endpoint, localEndpoint, 'local preview must bypass the public tunnel');
+  assert.equal(config.statusEndpoint, 'http://127.0.0.1:8788/healthz');
   assert.equal(config.timeoutMs, 45000);
   assert.ok(Object.isFrozen(config));
 }
@@ -26,6 +27,7 @@ for (const origin of ['https://yanmingxing.asia', 'https://starbeef6.github.io',
   assert.equal(config.endpoint, publicEndpoint,
     'public pages must use the fixed HTTPS relay');
   assert.equal(config.timeoutMs, 75000);
+  assert.equal(config.statusEndpoint, 'https://operations-chat-relay-smuzijgeaq-as.a.run.app/api/status');
   assert.notEqual(config.endpoint, localEndpoint);
 }
 const injected = { endpoint: '/api/chat' };
