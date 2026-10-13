@@ -139,6 +139,32 @@ class PublicGatewayHTTPTests(unittest.TestCase):
                 self.assertEqual(status, 403)
                 self.assertNotIn("Access-Control-Allow-Methods", headers)
 
+    def test_local_preview_origins_can_preflight_and_chat(self):
+        for origin in ("http://127.0.0.1:8786", "http://localhost:8786"):
+            with self.subTest(origin=origin):
+                status, headers, _ = self.send("OPTIONS", "/api/chat", origin, headers={
+                    "Access-Control-Request-Method": "POST",
+                    "Access-Control-Request-Headers": "content-type",
+                })
+                self.assertEqual(status, 204)
+                self.assertEqual(headers["Access-Control-Allow-Origin"], origin)
+                status, headers, raw = self.send("POST", "/api/chat", origin, b'{"message":"x"}')
+                self.assertEqual(status, 200)
+                self.assertEqual(headers["Access-Control-Allow-Origin"], origin)
+                self.assertEqual(json.loads(raw)["reply"], "熊大爷在。")
+
+    def test_local_preview_does_not_allow_other_ports_or_lookalike_hosts(self):
+        for origin in ("http://127.0.0.1:8785", "http://localhost:8785",
+                       "https://127.0.0.1:8786", "http://localhost.evil:8786",
+                       "http://127.0.0.1:8786/operations/"):
+            with self.subTest(origin=origin):
+                status, headers, _ = self.send("OPTIONS", "/api/chat", origin, headers={
+                    "Access-Control-Request-Method": "POST",
+                    "Access-Control-Request-Headers": "content-type",
+                })
+                self.assertEqual(status, 403)
+                self.assertNotIn("Access-Control-Allow-Origin", headers)
+
     def test_only_chat_and_health_routes_exist(self):
         for method, path in (("GET", "/"), ("GET", "/tools/operations-chat/server.py"),
                              ("POST", "/v1/responses"), ("OPTIONS", "/static/x.js"),

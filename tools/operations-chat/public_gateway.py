@@ -27,6 +27,8 @@ ALLOWED_ORIGINS = frozenset({
     "https://yanmingxing.asia",
     "http://www.yanmingxing.asia",
     "https://www.yanmingxing.asia",
+    "http://127.0.0.1:8786",
+    "http://localhost:8786",
     "http://127.0.0.1:8787",
     "https://127.0.0.1:8787",
     "http://localhost:8787",
