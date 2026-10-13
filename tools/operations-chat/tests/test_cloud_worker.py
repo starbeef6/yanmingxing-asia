@@ -113,7 +113,7 @@ class TransportAndReceiptTests(unittest.TestCase):
         self.assertEqual(seen["headers"]["host"], "127.0.0.1:8787")
         self.assertEqual(seen["headers"]["origin"], "http://127.0.0.1:8787")
         self.assertNotIn("authorization", seen["headers"])
-        self.assertEqual(seen["timeout"], 45)
+        self.assertEqual(seen["timeout"], 50)
 
     def test_local_transport_explicitly_bypasses_proxy_and_refuses_redirect(self):
         opener = Mock()
