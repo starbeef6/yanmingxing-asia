@@ -7,6 +7,7 @@ the existing backend retains its model policy, concurrency and daily budget.
 from __future__ import annotations
 
 from collections import OrderedDict
+import datetime as dt
 import json
 import os
 from pathlib import Path
@@ -15,6 +16,7 @@ import signal
 import stat
 import threading
 import time
+import uuid
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlsplit
 from urllib.request import HTTPRedirectHandler, ProxyHandler, Request, build_opener
@@ -64,6 +66,11 @@ def _json_bytes(value):
         return json.dumps(value, ensure_ascii=False, separators=(",", ":"), allow_nan=False).encode("utf-8")
     except (ValueError, TypeError, UnicodeError):
         raise WorkerError("invalid_json") from None
+
+
+def _diagnostic(code):
+    timestamp = dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds")
+    print(timestamp + " operations cloud worker: " + code, flush=True)
 
 
 def validate_relay_url(value):
@@ -142,7 +149,7 @@ def _read_json(response):
 
 def _cloud_json(base_url, token, path, payload, timeout):
     base_url = validate_relay_url(base_url)
-    if path not in {"/internal/pull", "/internal/complete"}:
+    if path not in {"/internal/pull", "/internal/start", "/internal/complete"}:
         raise WorkerError("invalid_relay_path")
     raw = _json_bytes(payload)
     if len(raw) > MAX_RESPONSE:
@@ -222,19 +229,37 @@ class RelayWorker:
         self.base_url = validate_relay_url(base_url)
         self._token = token
         self.stop_event = stop_event if stop_event is not None else threading.Event()
+        self._worker_id = uuid.uuid4().hex
         self._results = OrderedDict()
+        self._pending_results = set()
+        self._v2_jobs = set()
+        self._pending_job = None
 
     def pull(self):
-        value = _cloud_json(self.base_url, self._token, "/internal/pull", {}, PULL_TIMEOUT)
+        value = _cloud_json(self.base_url, self._token, "/internal/pull", {
+            "protocol": 2, "worker_id": self._worker_id,
+        }, PULL_TIMEOUT)
         if "job" not in value:
             raise WorkerError("invalid_pull_response")
         job = value["job"]
         if job is not None:
             validate_job(job)
+            if "requires_start" in job and job["requires_start"] is not True:
+                raise WorkerError("invalid_job")
         return job
+
+    def start(self, job_id):
+        value = _cloud_json(self.base_url, self._token, "/internal/start", {
+            "id": job_id, "worker_id": self._worker_id,
+        }, PULL_TIMEOUT)
+        if type(value.get("accepted")) is not bool:
+            raise WorkerError("start_not_acknowledged")
+        return value["accepted"]
 
     def complete(self, job_id, status, body):
         payload = {"id": job_id, "status": status, "body": body}
+        if job_id in self._v2_jobs:
+            payload["worker_id"] = self._worker_id
         for attempt in range(COMPLETION_RETRIES + 1):
             try:
                 value = _cloud_json(self.base_url, self._token, "/internal/complete", payload, COMPLETE_TIMEOUT)
@@ -248,26 +273,65 @@ class RelayWorker:
             except WorkerError as problem:
                 if not problem.retryable or attempt == COMPLETION_RETRIES:
                     raise
+                _diagnostic("completion_transport_retry")
                 if self.stop_event.wait(0.5 * (attempt + 1)):
                     raise WorkerError("worker_stopped") from None
 
-    def handle_job(self, job):
-        job_id, payload = validate_job(job)
+    def _prune_results(self):
         now = time.monotonic()
         for previous_id, (created, _status, _body) in list(self._results.items()):
             if now - created >= RESULT_TTL:
                 self._results.pop(previous_id, None)
+                self._pending_results.discard(previous_id)
+                self._v2_jobs.discard(previous_id)
+
+    def _submit_saved(self, job_id):
+        _created, status, body = self._results[job_id]
+        accepted = self.complete(job_id, status, body)
+        # A negative acknowledgment means expiry or relay restart, so discard
+        # transport work without reissuing this job's model request.
+        self._pending_results.discard(job_id)
+        _diagnostic("completion_acknowledged" if accepted else "completion_expired")
+
+    def handle_job(self, job):
+        job_id, payload = validate_job(job)
+        self._prune_results()
         saved = self._results.get(job_id)
         if saved is None:
+            if job.get("requires_start") is True:
+                # Keep the delivery across a lost start acknowledgment. The
+                # relay repeats start for this session but will not redeliver
+                # an already-started job to a different worker.
+                self._pending_job = job
+                if not self.start(job_id):
+                    self._pending_job = None
+                    _diagnostic("start_expired")
+                    return
+                self._v2_jobs.add(job_id)
+                self._pending_job = None
             status, body = call_backend(payload)
-            self._results[job_id] = (now, status, body)
+            self._results[job_id] = (time.monotonic(), status, body)
             while len(self._results) > MAX_CACHED_RESULTS:
-                self._results.popitem(last=False)
-        else:
-            _created, status, body = saved
+                previous_id, _value = self._results.popitem(last=False)
+                self._pending_results.discard(previous_id)
+                self._v2_jobs.discard(previous_id)
         # A failed completion retry never runs the model again. Cached results
         # also cover an uncertain acknowledgment followed by the same job ID.
-        self.complete(job_id, status, body)
+        self._pending_results.add(job_id)
+        self._submit_saved(job_id)
+
+    def tick(self):
+        self._prune_results()
+        # Recover completed replies even when the relay will not redeliver the
+        # claimed job. A failed submission keeps the cached result for next tick.
+        for job_id in list(self._pending_results):
+            self._submit_saved(job_id)
+        if self._pending_job is not None:
+            self.handle_job(self._pending_job)
+            return
+        job = self.pull()
+        if job is not None:
+            self.handle_job(job)
 
 
 def run(stop_event=None):
@@ -281,17 +345,15 @@ def run(stop_event=None):
             base_url, token = load_connection()
             if worker is None or worker.base_url != base_url or worker._token != token:
                 worker = RelayWorker(base_url, token, stop_event)
-            job = worker.pull()
-            if job is not None:
-                worker.handle_job(job)
+            worker.tick()
             failures = 0
-            code = "ready"
+            code = "polling"
         except WorkerError as problem:
             failures += 1
             delay = min(MAX_BACKOFF, POLL_INTERVAL * (2 ** min(failures - 1, 3)))
             code = problem.code
         if code != last_code:
-            print("operations cloud worker: " + code, flush=True)
+            _diagnostic(code)
             last_code = code
         stop_event.wait(delay)
 

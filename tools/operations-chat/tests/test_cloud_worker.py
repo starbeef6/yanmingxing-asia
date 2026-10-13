@@ -250,7 +250,9 @@ class WorkerFlowTests(unittest.TestCase):
         with patch.object(worker, "load_connection", side_effect=worker.WorkerError("private_config_unavailable")), patch("builtins.print") as log:
             worker.run(stop)
         self.assertEqual([call.args[0] for call in stop.wait.call_args_list], [5, 10, 20, 30, 30])
-        log.assert_called_once_with("operations cloud worker: private_config_unavailable", flush=True)
+        log.assert_called_once()
+        self.assertRegex(log.call_args.args[0], r"^\d{4}-\d{2}-\d{2}T.*\+00:00 operations cloud worker: private_config_unavailable$")
+        self.assertEqual(log.call_args.kwargs, {"flush": True})
 
     def test_idle_worker_polls_every_five_seconds(self):
         stop = Mock(spec=threading.Event)
@@ -258,7 +260,82 @@ class WorkerFlowTests(unittest.TestCase):
         with patch.object(worker, "load_connection", return_value=(RELAY, TEST_TOKEN)), patch.object(worker, "_cloud_json", return_value={"job": None}), patch("builtins.print") as log:
             worker.run(stop)
         self.assertEqual([call.args[0] for call in stop.wait.call_args_list], [5, 5])
-        log.assert_called_once_with("operations cloud worker: ready", flush=True)
+        log.assert_called_once()
+        self.assertRegex(log.call_args.args[0], r"^\d{4}-\d{2}-\d{2}T.*\+00:00 operations cloud worker: polling$")
+        self.assertEqual(log.call_args.kwargs, {"flush": True})
+
+    def test_pending_completion_recovers_in_next_cycle_without_job_redelivery(self):
+        failure = worker.WorkerError("relay_transport_error", True)
+        with patch.object(worker, "call_backend", return_value=(200, receipt())) as backend, patch.object(worker, "_cloud_json", side_effect=[failure, failure, failure, {"accepted": True}, {"job": None}]) as cloud:
+            with self.assertRaises(worker.WorkerError):
+                self.client.handle_job(job())
+            self.client.tick()
+        backend.assert_called_once()
+        self.assertEqual(cloud.call_args_list[3].args[2], "/internal/complete")
+        self.assertEqual(cloud.call_args_list[4].args[2], "/internal/pull")
+
+    def test_start_ack_loss_is_retried_before_one_backend_call(self):
+        delivered = {**job(), "requires_start": True}
+        self.client._pending_job = delivered
+        with patch.object(worker, "call_backend", return_value=(200, receipt())) as backend, patch.object(worker, "_cloud_json", side_effect=[worker.WorkerError("relay_transport_error", True), {"accepted": True}, {"accepted": True}]) as cloud:
+            with self.assertRaises(worker.WorkerError):
+                self.client.tick()
+            backend.assert_not_called()
+            self.client.tick()
+        backend.assert_called_once()
+        self.assertEqual([call.args[2] for call in cloud.call_args_list], ["/internal/start", "/internal/start", "/internal/complete"])
+
+    def test_expired_start_does_not_call_backend(self):
+        self.client._pending_job = {**job(), "requires_start": True}
+        with patch.object(worker, "_cloud_json", return_value={"accepted": False}), patch.object(worker, "call_backend") as backend:
+            self.client.tick()
+        backend.assert_not_called()
+        self.assertIsNone(self.client._pending_job)
+
+    def test_lost_delivery_start_and_completion_responses_recover_one_model_call(self):
+        # A real relay state with a fake, in-process transport; no credentials,
+        # model request or external service is used in this fault injection.
+        relay_path = WORKER_PATH.parent.parent / "operations-chat-cloud" / "server.py"
+        specification = importlib.util.spec_from_file_location("relay_fault_injection", relay_path)
+        relay = importlib.util.module_from_spec(specification)
+        specification.loader.exec_module(relay)
+        state = relay.RelayState(TEST_TOKEN)
+        state.pull(protocol=2, worker_id=self.client._worker_id)
+        _status, queued = state.enqueue(relay.clean_request({"message": "fictional fault test"}))
+        lost = {"/internal/pull": 1, "/internal/start": 1, "/internal/complete": 3}
+
+        def transport(_base, _token, path, payload, _timeout):
+            if path == "/internal/pull":
+                value = state.pull(protocol=payload["protocol"], worker_id=payload["worker_id"])
+            elif path == "/internal/start":
+                value = {"accepted": state.start(payload["id"], payload["worker_id"])}
+            else:
+                if lost[path]:
+                    # The completion request itself is lost, not just its ACK.
+                    lost[path] -= 1
+                    raise worker.WorkerError("relay_transport_error", True)
+                value = {"accepted": state.complete(payload["id"], (payload["status"], payload["body"]), payload["worker_id"])}
+            if lost[path]:
+                lost[path] -= 1
+                raise worker.WorkerError("relay_transport_error", True)
+            return value
+
+        with patch.object(worker, "_cloud_json", side_effect=transport), patch.object(worker, "call_backend", return_value=(200, receipt())) as backend:
+            for _ in range(3):
+                with self.assertRaises(worker.WorkerError):
+                    self.client.tick()
+            self.client.tick()
+        backend.assert_called_once()
+        self.assertEqual(state.wait(queued)[0], 200)
+        self.assertEqual(state.wait(queued)[1]["reply"], "熊大爷在。")
+        self.assertFalse(self.client._pending_results)
+
+    def test_backend_failure_is_completed_without_retrying_model(self):
+        self.client._pending_job = {**job(), "requires_start": True}
+        with patch.object(worker, "call_backend", return_value=(502, {"error": "generic"})) as backend, patch.object(worker, "_cloud_json", side_effect=[{"accepted": True}, {"accepted": True}, {"job": None}]):
+            self.client.tick()
+            self.client.tick()
+        backend.assert_called_once()
 
 
 if __name__ == "__main__":

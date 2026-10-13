@@ -18,6 +18,10 @@ python3 tools/operations-chat/server.py
 
 公网状态入口为 `/api/status`，不使用 Cloud Run 会拦截的 `/healthz`。状态中的 `ready` 仅表示近期收到本机连接，必须实际发送消息并收到有效回复，才能确认端到端聊天正常。
 
+通信协议 2 将“请求送达”和“开始模型调用”分开：`pull` 使用本次 worker 进程的随机会话 ID 预留任务，在 `start` 确认前允许同会话重新获取同一任务；`start` 确认可重复，但已开始的任务不会重新发给其他 worker。完成结果在本机缓存最多 32 条、180 秒，每轮优先补交尚未确认的结果，传输重试不重复请求模型。云端只缓存同等上限的完成确认。日志仅记录 UTC 时间和固定状态码，不包含问题、URL、凭据或请求头。
+
+升级顺序为先部署兼容旧 `pull` 的云端，再重启新版本机 worker。旧协议保持原来的一次交付行为，新 worker 只有收到 `requires_start` 才使用确认流程。70 秒请求期限及原有模型预算保持不变；短时丢包可恢复，Cloud Run 实例重启会清空内存任务，本机 worker 在开始确认后崩溃也不能保证找回未完成请求。这种情况以超时结束，不自动重跑可能已执行的模型调用。
+
 本机 worker 读取被 Git 忽略的 `.private/cloud-relay-config.json`（仅含固定服务 URL）与 `.private/cloud-relay-token`（文件权限 600）。中转凭据同时保存在项目 Secret Manager 的 `operations-chat-relay-worker-token`，专用服务账号只获得该 Secret 的读取权限。不要把私密目录、凭据或模型代理配置提交到仓库。
 
 8787 本机页面仍保留服务器注入的同源接口。8786 预览由 `preview.py` 提供，使用相同的公开文件白名单；该来源的聊天直接访问本机 8788 网关。其他来源不会自动连接本机网关。
