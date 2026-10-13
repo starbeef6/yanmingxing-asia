@@ -10,18 +10,28 @@ python3 tools/operations-chat/server.py
 
 ## 公网网页接入
 
-GitHub Pages 是静态页面，不能自己运行模型接口。网页通过 `assets/chat-config.js` 指定 HTTPS `/api/chat`；8787 本机页面仍保留服务器注入的同源接口。8786 预览由 `preview.py` 提供，使用相同的公开文件白名单；该来源的聊天直接访问本机 8788 网关，因此不依赖公网隧道。其他来源不会自动连接本机网关。
+正式网页 `https://yanmingxing.asia/operations/` 通过 `assets/chat-config.js` 使用固定 HTTPS 接口：
+
+`https://operations-chat-relay-smuzijgeaq-as.a.run.app/api/chat`
+
+`tools/operations-chat-cloud/server.py` 在 Cloud Run 中提供单请求中转。本机 `cloud_worker.py` 每 5 秒通过普通 HTTPS 拉取待处理请求，交给固定的 8787 Luna 后端，再提交回复。模型凭据只由原有本机代理持有；云端只有单独的中转通信凭据。云端实例上限为 1、最小实例数为 0，模型调用预算仍由本机后端统一限制。
+
+公网状态入口为 `/api/status`，不使用 Cloud Run 会拦截的 `/healthz`。状态中的 `ready` 仅表示近期收到本机连接，必须实际发送消息并收到有效回复，才能确认端到端聊天正常。
+
+本机 worker 读取被 Git 忽略的 `.private/cloud-relay-config.json`（仅含固定服务 URL）与 `.private/cloud-relay-token`（文件权限 600）。中转凭据同时保存在项目 Secret Manager 的 `operations-chat-relay-worker-token`，专用服务账号只获得该 Secret 的读取权限。不要把私密目录、凭据或模型代理配置提交到仓库。
+
+8787 本机页面仍保留服务器注入的同源接口。8786 预览由 `preview.py` 提供，使用相同的公开文件白名单；该来源的聊天直接访问本机 8788 网关。其他来源不会自动连接本机网关。
 
 `public_gateway.py` 监听 `127.0.0.1:8788`。它只提供 `GET /healthz`、`POST /api/chat` 和对应预检，并只给指定网站来源设置跨域头。网关固定转发到本机 8787，不能转发任意地址；不读凭据、不公开静态文件或代理的 `/v1/`。来源白名单不是身份认证，真正的调用预算由后端统一限制为每日 100 次、每分钟 12 次和并发 1。
 
 ```sh
 python3 tools/operations-chat/public_gateway.py
-cloudflared tunnel --url http://127.0.0.1:8788 --protocol quic --no-autoupdate
+python3 tools/operations-chat/cloud_worker.py
 ```
 
-隧道只能指向受限网关 **8788**，不能指向模型代理 8317。将本次 HTTPS 地址加 `/api/chat` 填入 `assets/chat-config.js` 后，需要发布静态网页。临时隧道地址可能在隧道重启后变化，届时必须更新并发布配置。Mac 关机、休眠、代理或隧道停止都会影响聊天；此方式不提供长期稳定的云端服务。
+旧临时 Cloudflare 隧道已停止，正式聊天不依赖临时隧道地址，也不公开 8317 模型代理。Mac 关机、休眠、本机代理或 worker 停止时，公网聊天会离线；静态看板仍可浏览。
 
-后台、网关和 8786 预览通过 `launchctl` 独立运行，并已保存到当前用户的 `~/Library/LaunchAgents/`，登录后可以自动启动；结束 Codex 回合不会主动关闭它们。配置和日志在被 Git 忽略的 `.private/` 中。本机模型代理也需要运行。公网隧道仍须单独确认网络连接和当次地址，只有网页实际收到模型回复才能判定公网聊天可用；`/healthz` 仅证明本机配置就绪。
+后台、网关、8786 预览及云端 worker 通过 `launchctl` 独立运行，并已保存到当前用户的 `~/Library/LaunchAgents/`，登录后可以自动启动；结束 Codex 回合或关闭终端不会主动关闭它们。配置和日志在被 Git 忽略的 `.private/` 中。本机模型代理也需要运行。
 
 本机预览入口：`http://127.0.0.1:8786/operations/`。`assets/chat-config.js` 将这一个端口及对应 `localhost` 来源连接到 8788，网关按来源精确允许；统一沿用 8787 的模型策略、并发和每日预算。
 
@@ -29,6 +39,7 @@ cloudflared tunnel --url http://127.0.0.1:8788 --protocol quic --no-autoupdate
 
 ```sh
 python3 -m unittest discover -s tools/operations-chat/tests -v
+python3 -m unittest discover -s tools/operations-chat-cloud/tests -v
 ```
 
 ## 看板上下文与 C(3,2)

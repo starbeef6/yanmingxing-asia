@@ -6,6 +6,7 @@ const vm = require('node:vm');
 const sourcePath = path.join(__dirname, '../../assets/chat-config.js');
 const source = fs.readFileSync(sourcePath, 'utf8');
 const localEndpoint = 'http://127.0.0.1:8788/api/chat';
+const publicEndpoint = 'https://operations-chat-relay-smuzijgeaq-as.a.run.app/api/chat';
 function load(origin, existing) {
   const window = { location: { origin } };
   if (existing) window.XiongDayeChat = existing;
@@ -16,13 +17,15 @@ function load(origin, existing) {
 for (const origin of ['http://127.0.0.1:8786', 'http://localhost:8786']) {
   const config = load(origin);
   assert.equal(config.endpoint, localEndpoint, 'local preview must bypass the public tunnel');
+  assert.equal(config.timeoutMs, 45000);
   assert.ok(Object.isFrozen(config));
 }
 for (const origin of ['https://yanmingxing.asia', 'https://starbeef6.github.io',
   'http://127.0.0.1:8785', 'http://localhost.evil:8786', 'https://127.0.0.1:8786']) {
   const config = load(origin);
-  assert.match(config.endpoint, /^https:\/\/[a-z0-9-]+\.trycloudflare\.com\/api\/chat$/,
-    'only the exact trusted HTTP preview origins select loopback');
+  assert.equal(config.endpoint, publicEndpoint,
+    'public pages must use the fixed HTTPS relay');
+  assert.equal(config.timeoutMs, 75000);
   assert.notEqual(config.endpoint, localEndpoint);
 }
 const injected = { endpoint: '/api/chat' };

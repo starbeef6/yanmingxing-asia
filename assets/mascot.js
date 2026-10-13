@@ -280,7 +280,8 @@
   async function remoteAnswer(question, current, endpoint) {
     if (endpoint === false) throw new Error("对话服务地址未配置正确，请稍后再试。");
     controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 45000);
+    const timeoutMs = window.XiongDayeChat?.timeoutMs === 75000 ? 75000 : 45000;
+    const timeout = setTimeout(() => controller.abort(), timeoutMs);
     try {
       const response = await fetch(endpoint, {
         method: "POST", credentials: "omit", cache: "no-store", redirect: "error",
@@ -288,7 +289,14 @@
         body: JSON.stringify({ message: question, messages: messages.slice(0, -1).slice(-4), context: compactContext(question, current) }),
         signal: controller.signal,
       });
-      if (!response.ok) throw new Error("对话服务暂时不可用，可以稍后重试。");
+      if (!response.ok) {
+        const errors = {
+          429: "熊大爷正在处理其他对话，请稍后重试。",
+          503: "聊天服务暂未连接，请稍后重试。",
+          504: "等待回复超时，请重试。",
+        };
+        throw new Error(errors[response.status] || "对话服务暂时不可用，可以稍后重试。");
+      }
       if (!/application\/json/i.test(response.headers.get("content-type") || "")) throw new Error("暂时没有收到有效回复，请重试。");
       const responseText = await response.text();
       if (responseText.length > 64000) throw new Error("回复过长，请换一个简短问题。");
@@ -297,7 +305,7 @@
       if (typeof reply !== "string" || !reply.trim() || reply.length > 8000) throw new Error("暂时没有收到有效回复，请重试。");
       return reply.trim();
     } catch (error) {
-      if (error.name === "AbortError") throw new Error("回复等待超过 45 秒，请重试。");
+      if (error.name === "AbortError") throw new Error(`回复等待超过 ${timeoutMs / 1000} 秒，请重试。`);
       if (error instanceof TypeError || error instanceof SyntaxError) throw new Error("暂时连接不上对话服务，请重试。");
       throw error;
     } finally {
