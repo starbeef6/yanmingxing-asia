@@ -318,6 +318,18 @@
     const freshness = current.loading ? "\n页面正在刷新，以下是当前显示的结果。" : current.failure ? "\n本次刷新未成功，以下是页面保留的结果。" : "";
     if (/预计|预测|预估|月底|全月能|历史进度/.test(question)) {
       if (rows.length !== 1 || rows[0].region !== current.region) return "请先在看板选择要查看的区域，我会读取该区域当前的月底预估。";
+      const monthParts = typeof current.month === "string" && current.month.match(/^(20\d{2})-(0[1-9]|1[0-2])$/);
+      const monthEnd = monthParts ? `${current.month}-${String(new Date(Date.UTC(Number(monthParts[1]), Number(monthParts[2]), 0)).getUTCDate()).padStart(2, "0")}` : null;
+      if (monthEnd && current.start === `${current.month}-01` && current.end === monthEnd) {
+        const actual = finite(rows[0].gmv);
+        if (actual === null || rows[0].status === "NO_DATA") return `${scope}${freshness}\n全月已结束，${current.region}的全月实际 GMV 尚未取得，暂时不能给出全月结果。`;
+        const goal = finite((current.target || rows[0].target)?.gmv);
+        const actualGap = goal !== null && goal > 0 ? goal - actual : null;
+        const actualGapText = actualGap === null ? "" : Math.abs(actualGap) < 0.005 ? "；与目标持平" : `；${actualGap > 0 ? "缺口" : "超额"} ${format(Math.abs(actualGap), 10000, " 万元")}`;
+        const actualAttainment = goal !== null && goal > 0 ? `；实际达成 ${percentFormat.format(actual / goal * 100)}%` : "";
+        const sourceNote = current.sourceComplete === false ? "\n来源口径尚待核对。" : "";
+        return `${scope}${freshness}\n全月已结束，${current.region}全月实际 GMV ${format(actual, 10000, " 万元")}${actualAttainment}${actualGapText}${sourceNote}`;
+      }
       const forecast = current.forecast;
       if (!forecast?.available || finite(forecast.gmv) === null) return `${scope}\n${current.region}的参考预估尚未取得，暂时不能给出月底营业额。`;
       const gap = finite(forecast.gap);

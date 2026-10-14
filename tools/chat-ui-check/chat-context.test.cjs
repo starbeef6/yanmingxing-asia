@@ -130,4 +130,33 @@ for (const mode of ['fixed-calendar-ridge', 'historical-shape-reference', undefi
     assert.doesNotMatch(text, /2025-10-11|历史累计|Ridge/);
   }
 }
+const closedSeptember = {
+  ...current, month: '2026-09', start: '2026-09-01', end: '2026-09-30',
+  selected: { ...current.selected, gmv: 48986246.6706, target: { gmv: 50000000 } },
+  target: { gmv: 50000000 },
+  forecast: { available: false, gmv: null, mode: 'fixed-calendar-ridge' },
+};
+const closedText = answerSandbox.localAnswer('月底预计多少', closedSeptember);
+assert.match(closedText, /全月已结束，全国全月实际 GMV 4898.62 万元/);
+assert.match(closedText, /实际达成 97.97%/);
+assert.match(closedText, /缺口 101.38 万元/);
+assert.doesNotMatch(closedText, /参考预计|Ridge|历史累计|尚未取得/);
+const poisonedForecast = { ...closedSeptember, forecast: {
+  available: true, gmv: 999999999, attainment: 99, gap: -999999999, mode: 'historical-shape-reference' } };
+assert.equal(answerSandbox.localAnswer('月底预计多少', poisonedForecast), closedText,
+  'closed-month actual overrides forecast values and their attainment/gap');
+for (const [actual, status] of [[null, 'ready'], [undefined, 'ready'], [0, 'NO_DATA']]) {
+  const input = { ...poisonedForecast, selected: { ...closedSeptember.selected, gmv: actual, status } };
+  const text = answerSandbox.localAnswer('月底预计多少', input);
+  assert.match(text, /全月实际 GMV 尚未取得/);
+  assert.doesNotMatch(text, /99999|实际达成|参考预计全月 GMV/);
+}
+for (const [actual, expected] of [[0, '实际达成 0%'], [60000000, '实际达成 120%；超额 1000.00 万元'], [50000000, '实际达成 100%；与目标持平']]) {
+  const input = { ...closedSeptember, selected: { ...closedSeptember.selected, gmv: actual, status: 'ready' } };
+  assert.ok(answerSandbox.localAnswer('月底预计多少', input).includes(expected),
+    'zero and achieved full-month actuals use the actual target relationship');
+}
+const partialSeptember = { ...poisonedForecast, start: '2026-09-02' };
+assert.doesNotMatch(answerSandbox.localAnswer('月底预计多少', partialSeptember), /全月已结束/,
+  'month-end date alone does not make a partial interval a full-month actual');
 console.log('chat-context tests passed');
