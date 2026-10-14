@@ -7,6 +7,7 @@ import sys
 ROOT = Path(__file__).resolve().parents[2]
 commands = [[sys.executable, 'tools/chat-ui-check/stamp-chat-assets.py']]
 commands += [['node', str(path.relative_to(ROOT))] for path in sorted((ROOT / 'tools/chat-ui-check').glob('*.test.cjs'))]
+commands += [['node', str(path.relative_to(ROOT))] for path in sorted((ROOT / 'tools/operations-forecast').glob('test_*.cjs'))]
 commands += [[sys.executable, '-m', 'unittest', 'discover', '-s', folder] for folder in (
     'tools/operations-chat/tests', 'tools/operations-chat-cloud/tests')]
 for command in commands:

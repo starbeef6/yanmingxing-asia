@@ -31,6 +31,7 @@ MAX_OUTPUT = 500
 PER_MINUTE = 12
 PER_DAY = 100
 REGION_NAMES = frozenset({"全国", "北区", "西区", "南区", "四川地区", "江苏地区"})
+FORECAST_MODES = frozenset({"fixed-calendar-ridge", "historical-shape-reference"})
 POLICY = {
     "model": MODEL,
     "reasoning": {"effort": "low", "mode": "standard"},
@@ -123,6 +124,25 @@ def _bounded_number(value):
     return value
 
 
+def _clean_forecast(value):
+    if not isinstance(value, dict):
+        return None
+    result = {}
+    for key in ("available", "gmv", "attainment", "gap", "share"):
+        item = value.get(key)
+        if key == "available" and isinstance(item, bool):
+            result[key] = item
+        elif key != "available" and key in value:
+            result[key] = _bounded_number(item)
+    mode = value.get("mode")
+    if isinstance(mode, str) and mode in FORECAST_MODES:
+        result["mode"] = mode
+    date = value.get("historicalDate")
+    if mode != "fixed-calendar-ridge" and isinstance(date, str) and len(date) <= 20:
+        result["historicalDate"] = date
+    return result
+
+
 def _clean_row(value):
     if not isinstance(value, dict):
         return None
@@ -146,19 +166,9 @@ def _clean_row(value):
     status = value.get("status")
     if isinstance(status, str) and len(status) <= 30:
         result["status"] = status
-    forecast = value.get("forecast")
-    if isinstance(forecast, dict):
-        clean_forecast = {}
-        for key in ("available", "gmv", "attainment", "gap", "share"):
-            item = forecast.get(key)
-            if key == "available" and isinstance(item, bool):
-                clean_forecast[key] = item
-            elif key != "available" and key in forecast:
-                clean_forecast[key] = _bounded_number(item)
-        date = forecast.get("historicalDate")
-        if isinstance(date, str) and len(date) <= 20:
-            clean_forecast["historicalDate"] = date
-        result["forecast"] = clean_forecast
+    forecast = _clean_forecast(value.get("forecast"))
+    if forecast is not None:
+        result["forecast"] = forecast
     return result
 
 
@@ -238,19 +248,9 @@ def sanitize_context(context, question: str):
             result["selected"] = selected
     if isinstance(context.get("target"), dict):
         result["target"] = _clean_target(context["target"])
-    forecast = context.get("forecast")
-    if isinstance(forecast, dict):
-        clean_forecast = {}
-        for key in ("available", "gmv", "attainment", "gap", "share"):
-            item = forecast.get(key)
-            if key == "available" and isinstance(item, bool):
-                clean_forecast[key] = item
-            elif key != "available" and key in forecast:
-                clean_forecast[key] = _bounded_number(item)
-        date = forecast.get("historicalDate")
-        if isinstance(date, str) and len(date) <= 20:
-            clean_forecast["historicalDate"] = date
-        result["forecast"] = clean_forecast
+    forecast = _clean_forecast(context.get("forecast"))
+    if forecast is not None:
+        result["forecast"] = forecast
     rows = context.get("regions")
     if isinstance(rows, list):
         clean_rows = []

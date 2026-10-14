@@ -13,6 +13,12 @@
     return `${month}-${String(new Date(Date.UTC(year, number, 0)).getUTCDate()).padStart(2, "0")}`;
   };
   const pct = (value) => `${(value * 100).toFixed(1)}%`;
+  const forecastMode = (value) => ["fixed-calendar-ridge", "historical-shape-reference"].includes(value) ? value : null;
+  const forecastBasis = (mode) => mode === "fixed-calendar-ridge"
+    ? "GMV按固定参数 Ridge 模型结合本月实际校准预计，不代表全月实际"
+    : mode === "historical-shape-reference"
+      ? "GMV按历史进度参考预计，不代表全月实际"
+      : "GMV按页面提供的参考预计，不代表全月实际";
   function metric(actual, target) {
     const knownActual = finite(actual) ? actual : null;
     const knownTarget = finite(target) ? target : null;
@@ -36,7 +42,7 @@
     else if (selected?.status === "NO_DATA" || actualEnd) {
       const forecast = isCurrentSelected ? context?.forecast : selected?.forecast;
       gmv = forecast?.available === true
-        ? { ...metric(forecast.gmv, target.gmv), basis: "forecast", referenceDate: forecast.historicalDate || null }
+        ? { ...metric(forecast.gmv, target.gmv), basis: "forecast", forecastMode: forecastMode(forecast.mode), referenceDate: forecast.mode === "historical-shape-reference" ? forecast.historicalDate || null : null }
         : { status: "unknown", attainment: null, actual: finite(selected?.gmv) ? selected.gmv : null, target: finite(target.gmv) ? target.gmv : null, basis: "unknown" };
     } else gmv = { status: "unknown", attainment: null, actual: finite(selected?.gmv) ? selected.gmv : null, target: finite(target.gmv) ? target.gmv : null, basis: "unknown" };
     const storeDateMatches = !!actualEnd && selected?.operatingStoresDate === actualEnd;
@@ -59,7 +65,7 @@
     if (context?.failure) quality.push("刷新未成功，沿用当前快照");
     if (context?.sourceComplete === false) quality.push("来源不完整，按当前快照待核对");
     else if (!sourceOk) quality.push("来源完整性尚未确认");
-    if (!fullMonth && gmv.basis === "forecast") quality.push("GMV按历史进度参考预计，不代表全月实际");
+    if (!fullMonth && gmv.basis === "forecast") quality.push(forecastBasis(gmv.forecastMode));
     if (!fullMonth && gmv.status === "unknown") quality.push("GMV没有完整全月实际或可用进度参考");
     if (!monthlyDefinition) quality.push("在营门店定义未满足月内正GMV且状态1/2去重口径");
     else if (!storeDateMatches) quality.push("门店统计日与GMV截止日错期，暂不合并判断");
@@ -105,7 +111,7 @@
     if (assessment.pattern === "010") {
       text += "只有店日均达标。门店规模收缩或低产门店退出可能抬高均值，这是待核实的解释，不能据此断言发生了闭店或外部经营环境变差。";
     }
-    if (gmv.basis === "forecast") text += "GMV只作历史进度参考，不代表全月实际。";
+    if (gmv.basis === "forecast") text += `${forecastBasis(gmv.forecastMode)}。`;
     if (!assessment.sourceOk || assessment.quality.some((item) => item.includes("刷新") || item.includes("来源不完整"))) text = `按当前快照，待核对。${text}`;
     if (assessment.quality.length) text += `\n${assessment.quality.join("；")}。`;
     return text;

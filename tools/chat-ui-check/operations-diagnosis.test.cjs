@@ -85,7 +85,37 @@ const forecastContext = context("000", {
 const progress = diagnosis.diagnose(forecastContext);
 assert.equal(progress.pattern, "10?");
 assert.equal(progress.basis, "forecast");
-assert.match(progress.summary, /进度参考/);
+assert.match(progress.summary, /参考预计/);
+assert.match(progress.summary, /按页面提供的参考预计/);
+assert.doesNotMatch(progress.summary, /历史进度/);
+
+const ridgeContext = { ...forecastContext,
+  forecast: { ...forecastContext.forecast, mode: 'fixed-calendar-ridge' } };
+const ridgeAssessment = diagnosis.assess(ridgeContext);
+const ridgeDiagnosis = diagnosis.diagnose(ridgeContext);
+assert.equal(ridgeDiagnosis.pattern, progress.pattern, 'method metadata does not change 2-of-3 logic');
+assert.equal(ridgeAssessment.metrics.gmv.forecastMode, 'fixed-calendar-ridge');
+assert.equal(ridgeAssessment.metrics.gmv.referenceDate, null, 'Ridge does not adopt a stale historical date');
+assert.match(ridgeDiagnosis.summary, /固定参数 Ridge 模型结合本月实际校准/);
+assert.doesNotMatch(ridgeDiagnosis.summary, /历史进度|2025-10/);
+
+const historyContext = { ...forecastContext,
+  forecast: { ...forecastContext.forecast, mode: 'historical-shape-reference' } };
+assert.match(diagnosis.diagnose(historyContext).summary, /按历史进度参考预计/);
+assert.equal(diagnosis.assess(historyContext).metrics.gmv.referenceDate, '2025-10-12');
+for (const mode of ['unknown-model', null, {}, ['fixed-calendar-ridge']]) {
+  const unknown = { ...forecastContext, forecast: { ...forecastContext.forecast, mode } };
+  const assessed = diagnosis.assess(unknown);
+  assert.equal(assessed.metrics.gmv.forecastMode, null);
+  assert.equal(assessed.metrics.gmv.referenceDate, null);
+  assert.match(diagnosis.diagnose(unknown).summary, /按页面提供的参考预计/);
+  assert.doesNotMatch(diagnosis.diagnose(unknown).summary, /历史进度|固定参数 Ridge/);
+}
+
+const otherRegionRow = { ...ridgeContext.selected, region: '西区',
+  forecast: { ...forecastContext.forecast, mode: 'historical-shape-reference' } };
+assert.match(diagnosis.diagnose(ridgeContext, otherRegionRow).summary, /按历史进度参考预计/,
+  'regional diagnosis uses the row method instead of national/current method');
 
 const scalePattern = diagnosis.diagnose(context("010"));
 assert.equal(scalePattern.action, "本周固定前后期都营业的同一批门店，重算店日均。");

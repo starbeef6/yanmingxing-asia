@@ -25,6 +25,10 @@
     historyRequestId: 0,
     historyLoading: false,
     historyFailure: null,
+    ridge: null,
+    ridgeLoading: false,
+    ridgeFailure: null,
+    ridgeRequestId: 0,
   };
   let publishedContext = null;
   window.OperationsContext = Object.freeze({ get: () => publishedContext });
@@ -48,7 +52,7 @@
         operatingStoresDate: row?.operatingStoresDate || null,
         status: row?.status || null,
         target: { gmv: finite(target.gmv), storeAverage: finite(target.storeAverage), operatingStores: finite(target.operatingStores) },
-        forecast: { available: forecast.available === true, gmv: finite(forecast.gmv), attainment: finite(forecast.attainment), historicalDate: forecast.historicalDate || null },
+        forecast: { available: forecast.available === true, gmv: finite(forecast.gmv), attainment: finite(forecast.attainment), gap: finite(forecast.gap), share: finite(forecast.share), mode: forecast.mode || null, historicalDate: forecast.historicalDate || null },
       };
     });
     const selected = regions.find((row) => row.region === state.region);
@@ -65,6 +69,7 @@
         available: forecast.available === true, gmv: finite(forecast.gmv),
         attainment: finite(forecast.attainment), gap: finite(forecast.gap),
         share: finite(forecast.share), historicalDate: forecast.historicalDate || null,
+        mode: forecast.mode || null,
       },
     });
     window.dispatchEvent(new CustomEvent("operations:context", { detail: publishedContext }));
@@ -282,9 +287,44 @@
     }
   }
 
+  async function loadRidgeModel() {
+    const requestId = ++state.ridgeRequestId;
+    state.ridgeLoading = true;
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 10000);
+    try {
+      if (!window.OperationsRidge) throw new Error("Ridge 预测暂不可用。");
+      const url = new URL("../assets/operations-ridge-model.json?v=20261014-ridge1", window.location.href);
+      const response = await fetch(url.href, { cache: "no-store", headers: { Accept: "application/json" }, signal: controller.signal });
+      if (!response.ok) throw new Error("Ridge 模型暂时无法读取。");
+      const model = window.OperationsRidge.validateModel(await response.json());
+      if (requestId !== state.ridgeRequestId) return;
+      state.ridge = model;
+      state.ridgeFailure = null;
+    } catch (_) {
+      if (requestId !== state.ridgeRequestId) return;
+      state.ridgeFailure = "Ridge 模型暂不可用。";
+    } finally {
+      clearTimeout(timeout);
+      if (requestId === state.ridgeRequestId) {
+        state.ridgeLoading = false;
+        render();
+      }
+    }
+  }
+
   function forecastFor(region, data) {
+    if (window.OperationsRidge && state.ridge) {
+      try {
+        const result = window.OperationsRidge.calculate(data, state.ridge, region, targetFor(region));
+        if (result.available) return result;
+      } catch (_) {
+        // Keep the original reference method available if model inference fails.
+      }
+    }
     if (!window.OperationsForecast || !state.history) return { available: false };
-    return window.OperationsForecast.calculate(data, state.history, region, targetFor(region));
+    const result = window.OperationsForecast.calculate(data, state.history, region, targetFor(region));
+    return { ...result, fallback: result.available === true };
   }
 
   function gapDisplay(forecast) {
@@ -295,7 +335,7 @@
   }
 
   function renderForecast(data) {
-    const supportedMonth = ["10", "11", "12"].includes(state.month.slice(-2));
+    const supportedMonth = ["09", "10", "11", "12"].includes(state.month.slice(-2));
     $("forecast-summary").hidden = !supportedMonth;
     const forecast = forecastFor(state.region, data);
     const gap = gapDisplay(forecast);
@@ -306,15 +346,27 @@
     $("forecast-gap").dataset.kind = gap.kind;
     $("forecast-share-fact").hidden = state.region === "全国" || !forecast.available;
     $("forecast-share").textContent = percent(forecast.share ?? null);
-    let note = "按 2025 年同月同日走势估算；历史口径尚待核对。";
+    const ridge = forecast.mode === "fixed-calendar-ridge";
+    const monthDays = new Date(Date.UTC(Number(state.month.slice(0, 4)), Number(state.month.slice(5)), 0)).getUTCDate();
+    const completed = data?.end === `${state.month}-${String(monthDays).padStart(2, "0")}`;
+    $("forecast-title").textContent = completed ? "全月 GMV · 已结束" : "参考预计全月 GMV";
+    $("forecast-share-label").textContent = ridge ? "模型累计进度" : "去年同期进度";
+    $("forecast-formula").textContent = ridge
+      ? "本区预计全月 GMV＝月初至实际截止日 GMV ÷ Ridge 模型的同期累计进度。全国预计为五区各自预计之和。"
+      : "本区预计全月 GMV＝月初至实际截止日 GMV ÷ 去年同月同日累计占比。全国预计为五区各自预计之和。";
+    $("forecast-limits").textContent = ridge
+      ? "模型用 2025 年 10—12 月参考日数据训练，参数固定（α＝100）；刷新仅按最新实际校准预测。当前仅有一个验证月，节假日及门店变化仍可能影响预测。"
+      : "历史占比来自固定参考表。参考日表与旧正式月报总额仍有 3.12%—3.73% 差异；星期、节假日和门店变化也会影响走势。";
+    let note = "预测参考暂不可用，实际指标正常显示。";
     if (!data || data.end === null) note = "本月尚无累计实际数据，暂不估算。";
-    else if (!state.history) note = state.historyLoading ? "正在读取历史参考，实际指标正常显示。" : state.historyFailure || "历史参考暂不可用，实际指标正常显示。";
-    else if (!forecast.available) note = "当前累计实际或历史参考不完整，暂不估算。";
-    else {
+    else if (forecast.available && ridge) {
+      const cutoff = data.end.slice(5).replace("-", "/");
+      note = completed ? "全月已结束，显示累计实际 GMV。" : `Ridge 固定模型 · 按截至 ${cutoff} 的实际 GMV 校准。`;
+    } else if (forecast.available) {
       const historicalDate = forecast.historicalDate?.slice(5).replace("-", "/");
-      note = state.region === "全国" ? `按 2025 年 ${historicalDate} 各区进度分别估算后汇总；历史口径尚待核对。` : `按 2025 年 ${historicalDate} 累计占比估算；历史口径尚待核对。`;
+      note = `当前使用原历史进度法 · 按 2025 年 ${historicalDate} 各区进度估算；历史口径尚待核对。`;
       if (state.historyFailure) note += ` ${state.historyFailure}`;
-    }
+    } else if (state.ridgeLoading || state.historyLoading) note = "正在读取预测参考，实际指标正常显示。";
     $("forecast-note").textContent = note;
     return forecast.available;
   }
@@ -472,6 +524,7 @@
   }
 
   async function refresh() {
+    if (!state.ridge && !state.ridgeLoading) loadRidgeModel();
     loadHistoryReference();
     const requestId = ++state.requestId;
     state.controller?.abort();

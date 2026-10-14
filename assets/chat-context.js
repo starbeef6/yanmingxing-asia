@@ -8,6 +8,7 @@
   const AREA_NAMES = new Set(["北区", "西区", "南区", "四川地区", "江苏地区"]);
   const NUMBER_FIELDS = ["gmv", "storeDays", "storeAverage", "operatingStores"];
   const DIAGNOSIS_FIELDS = ["pattern", "basis", "jointStatus", "metCount", "required", "satisfiedPairs", "action", "falsifier"];
+  const FORECAST_MODES = new Set(["fixed-calendar-ridge", "historical-shape-reference"]);
 
   function numberOrNull(value) {
     if (typeof value !== "number" && typeof value !== "string") return null;
@@ -27,12 +28,14 @@
 
   function forecastFor(value) {
     const forecast = value && typeof value === "object" ? value : {};
+    const mode = FORECAST_MODES.has(forecast.mode) ? forecast.mode : null;
     return {
       available: forecast.available === true,
       gmv: numberOrNull(forecast.gmv),
       attainment: numberOrNull(forecast.attainment),
       gap: numberOrNull(forecast.gap),
-      historicalDate: typeof forecast.historicalDate === "string" ? forecast.historicalDate : null,
+      mode,
+      historicalDate: mode !== "fixed-calendar-ridge" && typeof forecast.historicalDate === "string" ? forecast.historicalDate : null,
     };
   }
 

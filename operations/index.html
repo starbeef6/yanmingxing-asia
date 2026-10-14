@@ -90,19 +90,19 @@
 
     <section class="forecast-summary" id="forecast-summary" aria-label="月底参考预计" hidden>
       <div class="forecast-main">
-        <h2>参考预计全月 GMV</h2>
+        <h2 id="forecast-title">参考预计全月 GMV</h2>
         <p><strong id="forecast-value">—</strong><span>万元</span></p>
       </div>
       <div class="forecast-facts">
         <p><span>预计达成</span><strong id="forecast-rate">—</strong></p>
         <p><span id="forecast-gap-label">预计缺口</span><strong id="forecast-gap">—</strong></p>
-        <p id="forecast-share-fact"><span>去年同期进度</span><strong id="forecast-share">—</strong></p>
+        <p id="forecast-share-fact"><span id="forecast-share-label">模型累计进度</span><strong id="forecast-share">—</strong></p>
       </div>
-      <p class="forecast-note" id="forecast-note">按 2025 年同月同日走势估算。</p>
+      <p class="forecast-note" id="forecast-note">正在读取预测参考。</p>
       <details class="forecast-method">
         <summary>计算依据</summary>
-        <p>本区预计全月 GMV＝今年月初至实际截止日 GMV ÷ 去年同月同日累计占比。全国预计为五区各自预计之和。</p>
-        <p>历史占比来自固定参考表。参考日表与旧正式月报的总额仍有 3.12%—3.73% 差异，尚未完成正式口径核对；星期、节假日和门店变化也会影响走势。</p>
+        <p id="forecast-formula">预测使用所选区域、月份及实际截止日；全国预计为五区各自预计之和。</p>
+        <p id="forecast-limits">模型参数固定，刷新后按最近同步的实际 GMV 重新计算。</p>
       </details>
     </section>
 
@@ -127,11 +127,12 @@
     <noscript><p class="notice">请启用浏览器 JavaScript，以加载最近同步的经营指标。</p></noscript>
   </main>
   <script src="../assets/operations-forecast.js?v=20261011" defer></script>
-  <script src="../assets/operations-diagnosis.js?v=20261012-c32" defer></script>
-  <script src="../assets/operations.js?v=20261013-target-update" defer></script>
-  <script src="../assets/chat-context.js?v=20261012-c32-r2" defer></script>
+  <script src="../assets/operations-ridge.js?v=20261014-ridge1" defer></script>
+  <script src="../assets/operations-diagnosis.js?v=20261014-ridge1" defer></script>
+  <script src="../assets/operations.js?v=20261014-ridge1" defer></script>
+  <script src="../assets/chat-context.js?v=20261014-ridge1" defer></script>
   <script src="../assets/chat-session.js?v=20261012-c32" defer></script>
   <script src="../assets/chat-config.js?v=12b940a2179a" defer></script>
-  <script src="../assets/mascot.js?v=bff79612b071" defer></script>
+  <script src="../assets/mascot.js?v=3c1183628ebd" defer></script>
 </body>
 </html>

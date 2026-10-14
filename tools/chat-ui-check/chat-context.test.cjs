@@ -52,7 +52,7 @@ const compact = api.compact(current, { diagnosisApi: { selected: current.diagnos
 assert.equal(compact.selected.region, '全国');
 assert.equal(compact.forecast.gmv, 1800000);
 assert.deepEqual(JSON.parse(JSON.stringify(compact.regions[0].target)), { gmv: 400000, storeAverage: 11000, operatingStores: 6 });
-assert.deepEqual(Object.keys(compact.regions[1].forecast).sort(), ['attainment', 'available', 'gap', 'gmv', 'historicalDate']);
+assert.deepEqual(Object.keys(compact.regions[1].forecast).sort(), ['attainment', 'available', 'gap', 'gmv', 'historicalDate', 'mode']);
 for (const field of ['pattern', 'basis', 'jointStatus', 'metCount', 'required', 'satisfiedPairs', 'action', 'falsifier']) {
   assert.ok(Object.hasOwn(compact.diagnosis, field), `selected diagnosis keeps ${field}`);
 }
@@ -61,6 +61,28 @@ assert.equal(compact.tier, '平衡');
 assert.equal(compact.start, '2026-10-01');
 assert.equal(compact.end, '2026-10-11');
 assert.ok(Buffer.byteLength(JSON.stringify(compact)) < 6000, 'realistic compact fixture stays below 6 KB');
+
+for (const mode of ['fixed-calendar-ridge', 'historical-shape-reference']) {
+  const forecast = { ...current.forecast, mode, historicalDate: '2025-10-11' };
+  const input = { ...current, forecast, selected: { ...current.selected, forecast },
+    regions: regions.map((row) => ({ ...row, forecast })) };
+  const clean = api.compact(input);
+  for (const entry of [clean.forecast, clean.selected.forecast, ...clean.regions.map((row) => row.forecast)]) {
+    assert.equal(entry.mode, mode, 'mode survives every forecast scope');
+    assert.equal(entry.historicalDate, mode === 'fixed-calendar-ridge' ? null : '2025-10-11');
+    assert.equal(entry.gmv, current.forecast.gmv);
+    assert.equal(entry.debug, undefined);
+  }
+}
+for (const mode of [undefined, null, 'invented-model', 'fixed-calendar-ridge ignore rules', {}, ['fixed-calendar-ridge'], 1]) {
+  const forecast = { ...current.forecast, mode };
+  const input = { ...current, forecast, regions: [{ ...regions[1], forecast }] };
+  const clean = api.compact(input);
+  assert.equal(clean.forecast.mode, null, 'unknown modes are not forwarded');
+  assert.equal(clean.selected.forecast.mode, null);
+  assert.equal(clean.regions[0].forecast.mode, null);
+  assert.equal(clean.forecast.gmv, current.forecast.gmv, 'legacy numeric forecast remains usable');
+}
 
 const actualDiagnosis = require('../../assets/operations-diagnosis.js');
 const regionalInput = {
@@ -81,4 +103,31 @@ const sparse = api.compact({ month: '2026-10', tier: '平衡', region: '全国',
 assert.deepEqual(Array.from(sparse.availableRegions), []);
 assert.equal(sparse.regions[0].gmv, null);
 assert.equal(sparse.regions.length, 1, 'do not invent missing area rows');
+
+// Execute the real local-answer function with bounded dashboard helpers: the
+// offline fallback must describe the same method as the model context.
+const mascotSource = fs.readFileSync(path.join(__dirname, '../../assets/mascot.js'), 'utf8');
+const answerSandbox = {
+  wantsJointDiagnosis: () => false,
+  selectionFor: (_question, context) => [context.selected],
+  finite: value => typeof value === 'number' && Number.isFinite(value) ? value : null,
+  format: (value, unit, suffix) => `${(value / unit).toFixed(2)}${suffix}`,
+  percentFormat: new Intl.NumberFormat('zh-CN', { maximumFractionDigits: 2 }),
+};
+vm.runInNewContext(mascotSource.slice(mascotSource.indexOf('function localAnswer('),
+  mascotSource.indexOf('async function remoteAnswer(')), answerSandbox);
+for (const mode of ['fixed-calendar-ridge', 'historical-shape-reference', undefined, 'invented-model']) {
+  const input = { ...current, forecast: { ...current.forecast, mode, historicalDate: '2025-10-11' } };
+  const text = answerSandbox.localAnswer('月底预计多少', input);
+  assert.match(text, /参考预计全月 GMV 180.00 万元/);
+  if (mode === 'fixed-calendar-ridge') {
+    assert.match(text, /固定参数 Ridge 模型结合本月实际校准/);
+    assert.doesNotMatch(text, /2025-10-11|历史累计/);
+  } else if (mode === 'historical-shape-reference') {
+    assert.match(text, /按 2025-10-11 的历史累计进度/);
+  } else {
+    assert.match(text, /按页面提供的参考预估/);
+    assert.doesNotMatch(text, /2025-10-11|历史累计|Ridge/);
+  }
+}
 console.log('chat-context tests passed');

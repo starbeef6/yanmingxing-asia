@@ -323,7 +323,11 @@
       const gap = finite(forecast.gap);
       const gapText = gap === null ? "" : Math.abs(gap) < 0.005 ? "；与目标持平" : `；预计${gap > 0 ? "缺口" : "超额"} ${format(Math.abs(gap), 10000, " 万元")}`;
       const attainment = finite(forecast.attainment) === null ? "" : `；预计达成 ${percentFormat.format(forecast.attainment * 100)}%`;
-      const basis = forecast.historicalDate ? `\n按 ${forecast.historicalDate} 的历史累计进度估算，仅作参考。` : "\n按页面历史累计进度估算，仅作参考。";
+      const basis = forecast.mode === "fixed-calendar-ridge"
+        ? "\n按固定参数 Ridge 模型结合本月实际校准估算，仅作参考，不代表全月实际。"
+        : forecast.mode === "historical-shape-reference"
+          ? forecast.historicalDate ? `\n按 ${forecast.historicalDate} 的历史累计进度估算，仅作参考。` : "\n按页面历史累计进度估算，仅作参考。"
+          : "\n按页面提供的参考预估，仅作参考，不代表全月实际。";
       return `${scope}${freshness}\n${current.region}参考预计全月 GMV ${format(forecast.gmv, 10000, " 万元")}${attainment}${gapText}${basis}`;
     }
     const metrics = {
