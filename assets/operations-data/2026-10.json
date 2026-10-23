@@ -2,7 +2,7 @@
   "month": "2026-10",
   "start": "2026-10-01",
   "end": "2026-10-21",
-  "fetchedAt": "2026-10-22T23:54:58Z",
+  "fetchedAt": "2026-10-23T00:06:58Z",
   "source": {
     "label": "Navicat 查询导出快照 · 同步后刷新网页读取",
     "mode": "snapshot",
@@ -35,7 +35,7 @@
       "storeDays": 18633,
       "storeAverage": 1785.937452369452,
       "status": "OK",
-      "operatingStores": 910,
+      "operatingStores": 909,
       "operatingStoresDate": "2026-10-21"
     },
     {
@@ -53,7 +53,7 @@
       "storeDays": 5163,
       "storeAverage": 1892.1585957776485,
       "status": "OK",
-      "operatingStores": 249,
+      "operatingStores": 248,
       "operatingStoresDate": "2026-10-21"
     },
     {
