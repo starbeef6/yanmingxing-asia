@@ -2,7 +2,7 @@
   "month": "2026-10",
   "start": "2026-10-01",
   "end": "2026-10-26",
-  "fetchedAt": "2026-10-27T02:06:58Z",
+  "fetchedAt": "2026-10-27T02:18:58Z",
   "source": {
     "label": "Navicat 查询导出快照 · 同步后刷新网页读取",
     "mode": "snapshot",
@@ -31,54 +31,54 @@
   "rows": [
     {
       "region": "全国",
-      "gmv": 40960016.28,
+      "gmv": 41214887.13,
       "storeDays": 23122,
-      "storeAverage": 1771.4737600553585,
+      "storeAverage": 1782.4966322117464,
       "status": "OK",
       "operatingStores": 913,
       "operatingStoresDate": "2026-10-26"
     },
     {
       "region": "北区",
-      "gmv": 9116574.02,
+      "gmv": 9170811.6,
       "storeDays": 5555,
-      "storeAverage": 1641.1474383438344,
+      "storeAverage": 1650.9111791179118,
       "status": "OK",
       "operatingStores": 223,
       "operatingStoresDate": "2026-10-26"
     },
     {
       "region": "西区",
-      "gmv": 11972867.01,
+      "gmv": 12054351.06,
       "storeDays": 6396,
-      "storeAverage": 1871.9304268292683,
+      "storeAverage": 1884.6702720450282,
       "status": "OK",
       "operatingStores": 249,
       "operatingStoresDate": "2026-10-26"
     },
     {
       "region": "南区",
-      "gmv": 11057977.45,
+      "gmv": 11109088.97,
       "storeDays": 6452,
-      "storeAverage": 1713.8836717296963,
+      "storeAverage": 1721.8054820210787,
       "status": "OK",
       "operatingStores": 253,
       "operatingStoresDate": "2026-10-26"
     },
     {
       "region": "四川地区",
-      "gmv": 5796752.47,
+      "gmv": 5844412.83,
       "storeDays": 2718,
-      "storeAverage": 2132.7271780721117,
+      "storeAverage": 2150.2622626931566,
       "status": "OK",
       "operatingStores": 107,
       "operatingStoresDate": "2026-10-26"
     },
     {
       "region": "江苏地区",
-      "gmv": 3015845.33,
+      "gmv": 3036222.67,
       "storeDays": 2001,
-      "storeAverage": 1507.1690804597702,
+      "storeAverage": 1517.3526586706646,
       "status": "OK",
       "operatingStores": 81,
       "operatingStoresDate": "2026-10-26"
