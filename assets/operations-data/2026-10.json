@@ -1,8 +1,8 @@
 {
   "month": "2026-10",
   "start": "2026-10-01",
-  "end": "2026-10-26",
-  "fetchedAt": "2026-10-28T01:42:58Z",
+  "end": "2026-10-27",
+  "fetchedAt": "2026-10-28T01:54:59Z",
   "source": {
     "label": "Navicat 查询导出快照 · 同步后刷新网页读取",
     "mode": "snapshot",
@@ -10,17 +10,17 @@
     "sourceRefreshedAt": null,
     "completenessCheck": "continuous-input-days-and-six-scopes; historical-months-through-month-end",
     "expectedThrough": "2026-10-27",
-    "dataThrough": "2026-10-26",
+    "dataThrough": "2026-10-27",
     "queryTimestampVerified": false,
     "timestampNote": "保留 SQL queried_at；数据库时钟与 UTC+8 标注尚待现场核实，未以本地转换时间替代。",
     "sourceRefreshNote": "输入未提供上游重算或更新时点；查询时间不能替代源更新时点。",
     "sourceRows": {
-      "全国": 25493,
-      "北区": 6195,
-      "西区": 6841,
-      "南区": 7090,
-      "四川地区": 2943,
-      "江苏地区": 2424
+      "全国": 26473,
+      "北区": 6435,
+      "西区": 7103,
+      "南区": 7363,
+      "四川地区": 3056,
+      "江苏地区": 2516
     },
     "operatingStoresDefinition": "所选月内有过正营业额、门店来源1/2/3且月门店状态1/2的去重门店数；历史月表与当前门店表按原SQL合并。门店数未加GMV截止日筛选，统计日期独立于GMV截止日。",
     "operatingStoresMethod": "monthly-positive-gmv-status-1-2-distinct-store-count"
@@ -31,57 +31,57 @@
   "rows": [
     {
       "region": "全国",
-      "gmv": 41214887.13,
-      "storeDays": 23122,
-      "storeAverage": 1782.4966322117464,
+      "gmv": 42748978.79,
+      "storeDays": 24017,
+      "storeAverage": 1779.9466540367239,
       "status": "OK",
-      "operatingStores": 913,
-      "operatingStoresDate": "2026-10-26"
+      "operatingStores": 914,
+      "operatingStoresDate": "2026-10-27"
     },
     {
       "region": "北区",
-      "gmv": 9170811.6,
-      "storeDays": 5555,
-      "storeAverage": 1650.9111791179118,
+      "gmv": 9498808.87,
+      "storeDays": 5773,
+      "storeAverage": 1645.385219123506,
       "status": "OK",
       "operatingStores": 223,
-      "operatingStoresDate": "2026-10-26"
+      "operatingStoresDate": "2026-10-27"
     },
     {
       "region": "西区",
-      "gmv": 12054351.06,
-      "storeDays": 6396,
-      "storeAverage": 1884.6702720450282,
+      "gmv": 12443510.47,
+      "storeDays": 6641,
+      "storeAverage": 1873.740471314561,
       "status": "OK",
       "operatingStores": 249,
-      "operatingStoresDate": "2026-10-26"
+      "operatingStoresDate": "2026-10-27"
     },
     {
       "region": "南区",
-      "gmv": 11109088.97,
-      "storeDays": 6452,
-      "storeAverage": 1721.8054820210787,
+      "gmv": 11608122.58,
+      "storeDays": 6702,
+      "storeAverage": 1732.0385825126828,
       "status": "OK",
-      "operatingStores": 253,
-      "operatingStoresDate": "2026-10-26"
+      "operatingStores": 254,
+      "operatingStoresDate": "2026-10-27"
     },
     {
       "region": "四川地区",
-      "gmv": 5844412.83,
-      "storeDays": 2718,
-      "storeAverage": 2150.2622626931566,
+      "gmv": 6055574.14,
+      "storeDays": 2824,
+      "storeAverage": 2144.3251203966006,
       "status": "OK",
       "operatingStores": 107,
-      "operatingStoresDate": "2026-10-26"
+      "operatingStoresDate": "2026-10-27"
     },
     {
       "region": "江苏地区",
-      "gmv": 3036222.67,
-      "storeDays": 2001,
-      "storeAverage": 1517.3526586706646,
+      "gmv": 3142962.73,
+      "storeDays": 2077,
+      "storeAverage": 1513.222306210881,
       "status": "OK",
       "operatingStores": 81,
-      "operatingStoresDate": "2026-10-26"
+      "operatingStoresDate": "2026-10-27"
     }
   ],
   "targets": {}
