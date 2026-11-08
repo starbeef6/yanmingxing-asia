@@ -2,7 +2,7 @@
   "month": "2026-11",
   "start": "2026-11-01",
   "end": "2026-11-07",
-  "fetchedAt": "2026-11-08T02:42:59Z",
+  "fetchedAt": "2026-11-08T02:54:58Z",
   "source": {
     "label": "Navicat 查询导出快照 · 同步后刷新网页读取",
     "mode": "snapshot",
@@ -31,54 +31,54 @@
   "rows": [
     {
       "region": "全国",
-      "gmv": 12842193.32,
-      "storeDays": 6238,
-      "storeAverage": 2058.7036421930106,
+      "gmv": 12945878.33,
+      "storeDays": 6240,
+      "storeAverage": 2074.659988782051,
       "status": "OK",
-      "operatingStores": 899,
+      "operatingStores": 900,
       "operatingStoresDate": "2026-11-07"
     },
     {
       "region": "北区",
-      "gmv": 3169947.83,
+      "gmv": 3181340.82,
       "storeDays": 1511,
-      "storeAverage": 2097.9138517538054,
+      "storeAverage": 2105.453884844474,
       "status": "OK",
       "operatingStores": 218,
       "operatingStoresDate": "2026-11-07"
     },
     {
       "region": "西区",
-      "gmv": 3675745.69,
+      "gmv": 3704611.57,
       "storeDays": 1724,
-      "storeAverage": 2132.103068445476,
+      "storeAverage": 2148.8466183294663,
       "status": "OK",
       "operatingStores": 248,
       "operatingStoresDate": "2026-11-07"
     },
     {
       "region": "南区",
-      "gmv": 3268499.52,
-      "storeDays": 1728,
-      "storeAverage": 1891.4927777777777,
+      "gmv": 3322432.89,
+      "storeDays": 1730,
+      "storeAverage": 1920.4814393063584,
       "status": "OK",
-      "operatingStores": 248,
+      "operatingStores": 249,
       "operatingStoresDate": "2026-11-07"
     },
     {
       "region": "四川地区",
-      "gmv": 1729042.12,
+      "gmv": 1733117.86,
       "storeDays": 746,
-      "storeAverage": 2317.7508310991957,
+      "storeAverage": 2323.2142895442357,
       "status": "OK",
       "operatingStores": 108,
       "operatingStoresDate": "2026-11-07"
     },
     {
       "region": "江苏地区",
-      "gmv": 998958.16,
+      "gmv": 1004375.19,
       "storeDays": 529,
-      "storeAverage": 1888.3897164461248,
+      "storeAverage": 1898.6298487712666,
       "status": "OK",
       "operatingStores": 77,
       "operatingStoresDate": "2026-11-07"
