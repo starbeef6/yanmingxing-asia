@@ -2,7 +2,7 @@
   "month": "2026-11",
   "start": "2026-11-01",
   "end": "2026-11-15",
-  "fetchedAt": "2026-11-16T02:42:58Z",
+  "fetchedAt": "2026-11-16T02:54:58Z",
   "source": {
     "label": "Navicat 查询导出快照 · 同步后刷新网页读取",
     "mode": "snapshot",
@@ -31,54 +31,54 @@
   "rows": [
     {
       "region": "全国",
-      "gmv": 25552256.96,
+      "gmv": 25884432.28,
       "storeDays": 13336,
-      "storeAverage": 1916.0360647870425,
+      "storeAverage": 1940.9442321535694,
       "status": "OK",
       "operatingStores": 901,
       "operatingStoresDate": "2026-11-15"
     },
     {
       "region": "北区",
-      "gmv": 5987277.21,
+      "gmv": 6070999.46,
       "storeDays": 3234,
-      "storeAverage": 1851.3534972170687,
+      "storeAverage": 1877.241638837353,
       "status": "OK",
       "operatingStores": 218,
       "operatingStoresDate": "2026-11-15"
     },
     {
       "region": "西区",
-      "gmv": 7306076.38,
+      "gmv": 7414441.15,
       "storeDays": 3691,
-      "storeAverage": 1979.430067732322,
+      "storeAverage": 2008.7892576537524,
       "status": "OK",
       "operatingStores": 248,
       "operatingStoresDate": "2026-11-15"
     },
     {
       "region": "南区",
-      "gmv": 6739276.85,
+      "gmv": 6815023.1,
       "storeDays": 3693,
-      "storeAverage": 1824.8786487950176,
+      "storeAverage": 1845.3894124018414,
       "status": "OK",
       "operatingStores": 250,
       "operatingStoresDate": "2026-11-15"
     },
     {
       "region": "四川地区",
-      "gmv": 3599290.18,
+      "gmv": 3641101.78,
       "storeDays": 1592,
-      "storeAverage": 2260.8606658291455,
+      "storeAverage": 2287.1242336683417,
       "status": "OK",
       "operatingStores": 108,
       "operatingStoresDate": "2026-11-15"
     },
     {
       "region": "江苏地区",
-      "gmv": 1920336.34,
+      "gmv": 1942866.79,
       "storeDays": 1126,
-      "storeAverage": 1705.4496802841918,
+      "storeAverage": 1725.4589609236234,
       "status": "OK",
       "operatingStores": 77,
       "operatingStoresDate": "2026-11-15"
