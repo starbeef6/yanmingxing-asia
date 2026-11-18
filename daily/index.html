@@ -36,8 +36,8 @@ a:focus-visible,.print:focus-visible {outline:2px solid var(--red);outline-offse
 section {margin-top:13px;min-width:0}
 .section-head {display:flex;align-items:baseline;justify-content:space-between;flex-wrap:wrap;gap:1px 7px;margin-bottom:5px}
 h2 {font-size:16px;line-height:1.23;letter-spacing:-.015em}
-.subtitle,.muted,.na,.foot {color:var(--muted)}
-.subtitle,.foot {font-size:11px}
+.subtitle,.muted,.na {color:var(--muted)}
+.subtitle {font-size:11px}
 table {width:100%;border-collapse:collapse}
 th,td {padding:3px 6px;border-bottom:1px solid var(--line);text-align:right;white-space:nowrap}
 th:first-child {text-align:left}
@@ -101,7 +101,6 @@ tbody th {font-weight:600}
 .tiers li span:last-child {color:var(--muted)}
 .actions {border-top:2px solid var(--red);padding-top:6px}
 .actions p {font-size:12px}
-.foot {display:flex;justify-content:space-between;flex-wrap:wrap;gap:2px 12px;padding-top:5px;margin-top:7px;border-top:1px solid var(--line);line-height:1.42}
 @media screen and (max-width:1000px) {
   .two-up {grid-template-columns:1fr;gap:0}
   main {padding-inline:23px}
@@ -178,7 +177,7 @@ tbody th {font-weight:600}
   .hero small {font-size:9px}
   section {margin-top:8px;break-inside:avoid}
   .section-head {margin-bottom:3px}
-  .subtitle,.foot {font-size:9px}
+  .subtitle {font-size:9px}
   th,td {padding:2.7px 3px}
   thead th {font-size:9px}
   thead small {font-size:8px}
@@ -194,7 +193,6 @@ tbody th {font-weight:600}
   .donut {width:54px}
   .donut::before {background:#fff}
   .mix-legend dd small {font-size:8px}
-  .foot {margin-top:6px}
 }
 </style>
 </head>
@@ -202,7 +200,7 @@ tbody th {font-weight:600}
 <main aria-label="熊大爷经营日报">
 <header class="mast">
   <div><div class="brand">熊大爷</div><h1>经营日报</h1></div>
-  <div class="meta"><a class="print" href="2026-11-17.pdf" download="熊大爷经营日报_2026-11-17.pdf">下载当日 PDF</a><time datetime="2026-11-17">2026.11.17 周二</time></div>
+  <div class="meta"><a class="print" href="2026-11-17.pdf?v=4ae383c52e33" download="熊大爷经营日报_2026-11-17.pdf">下载当日 PDF</a><time datetime="2026-11-17">2026.11.17 周二</time></div>
 </header>
 <dl class="hero"><div><dt>当日 GMV</dt><dd>145.63<small>万元</small></dd></div>
 <div><dt>11 月累计 GMV</dt><dd>2,878.60<small>万元</small></dd></div>
@@ -288,8 +286,6 @@ tbody th {font-weight:600}
 
 <section class="actions" aria-labelledby="attention"><div class="section-head"><h2 id="attention">异常与今日跟进</h2></div><p>北区 GMV 较上周二 −1.43 万元，五区中降幅金额最大。</p>
 </section>
-
-<footer class="foot"><p>实绩取自数据库 · 月目标采用 V3 预算 · 线上到手率缺配对数据时以 — 显示</p></footer>
 </main>
 </body>
 </html>
